@@ -1,39 +1,51 @@
 from dataclasses import dataclass
 from typing import Literal
 
-import cupy as cp
+import torch
 from tqdm import tqdm
 
 
 @dataclass
 class SBResult:
-    x: cp.ndarray
-    y: cp.ndarray
-    g: cp.ndarray
-    V: cp.ndarray
-    H: cp.ndarray = None
-    cut: cp.ndarray = None
+    x: torch.Tensor
+    y: torch.Tensor
+    g: torch.Tensor
+    V: torch.Tensor
+    X: torch.Tensor = None
+    H: torch.Tensor = None
+    cut: torch.Tensor = None
 
     @property
     def best_x(self):
-        return cp.sign(self.x[self.cut.argmax()])
+        return torch.sign(self.x[self.cut.argmax()])
+
+    def to(self, device):
+        for attr_name, attr_value in self.__dict__.items():
+            if isinstance(attr_value, torch.Tensor):
+                setattr(self, attr_name, attr_value.to(device))
+        return self
+
+    def numpy(self):
+        for attr_name, attr_value in self.__dict__.items():
+            if isinstance(attr_value, torch.Tensor):
+                setattr(self, attr_name, attr_value.cpu().numpy())
+        return self
+
+    @property
+    def device(self):
+        return list({getattr(self, attr_name).device for attr_name in self.__dict__ if isinstance(getattr(self, attr_name), torch.Tensor)})
 
 
-def _aSB(J, k_p, xi, eta, max_steps, seed, progress_bar) -> SBResult:
+torch.serialization.add_safe_globals([SBResult])
+
+
+def _aSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar) -> SBResult:
     N = J.shape[0]
-    if xi is None:
-        xi = 1 / 2 / N**0.5
-    if max_steps is None:
-        max_steps = int(2 / k_p / eta)
 
-    cp.random.seed(seed)
-    x0 = 0.02 * cp.random.uniform(-1, 1, N)
-    y0 = cp.zeros(N)
-
-    x_history = cp.zeros((max_steps, N))
-    y_history = cp.zeros((max_steps, N))
-    x_history[0] = x = x0.copy()
-    y_history[0] = y = y0.copy()
+    x_history = torch.zeros((max_steps, N), device=J.device)
+    y_history = torch.zeros((max_steps, N), device=J.device)
+    x_history[0] = x = torch.clone(x0)
+    y_history[0] = y = torch.clone(y0)
 
     iterator = tqdm(range(max_steps), desc="aSB Progress", disable=not progress_bar)
 
@@ -47,34 +59,26 @@ def _aSB(J, k_p, xi, eta, max_steps, seed, progress_bar) -> SBResult:
         x_history[i] = x
         y_history[i] = y
 
-        if cp.any(cp.linalg.norm(g) > 20):
+        if torch.any(torch.linalg.norm(g) > 20):
             break
 
     x_history = x_history[: i + 1]
     y_history = y_history[: i + 1]
 
-    t = cp.arange(len(x_history))[:, None] * eta
+    t = torch.arange(len(x_history), device=J.device)[:, None] * eta
     g_history = -(x_history**2 + (1 - k_p * t)) * x_history + xi * x_history @ J
-    V_history = 1 / 4 * (x_history**4).sum(-1) + (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * cp.einsum("tn,tm,nm->t", x_history, x_history, J)
+    V_history = 1 / 4 * (x_history**4).sum(-1) + (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * torch.einsum("tn,tm,nm->t", x_history, x_history, J)
 
     return SBResult(x_history, y_history, g_history, V_history)
 
 
-def _bSB(J, k_p, xi, eta, max_steps, seed, progress_bar):
+def _bSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar):
     N = J.shape[0]
-    if xi is None:
-        xi = 1 / 2 / N**0.5
-    if max_steps is None:
-        max_steps = int(2 / k_p / eta)
 
-    cp.random.seed(seed)
-    x0 = 0.02 * cp.random.uniform(-1, 1, N)
-    y0 = cp.zeros(N)
-
-    x_history = cp.zeros((max_steps, N))
-    y_history = cp.zeros((max_steps, N))
-    x_history[0] = x = x0.copy()
-    y_history[0] = y = y0.copy()
+    x_history = torch.zeros((max_steps, N), device=J.device)
+    y_history = torch.zeros((max_steps, N), device=J.device)
+    x_history[0] = x = torch.clone(x0)
+    y_history[0] = y = torch.clone(y0)
 
     iterator = tqdm(range(max_steps), desc="bSB Progress", disable=not progress_bar)
     for i in iterator:
@@ -84,67 +88,63 @@ def _bSB(J, k_p, xi, eta, max_steps, seed, progress_bar):
         x += y * eta
         y += g * eta
 
+        y[torch.abs(x) > 1] = 0
+        x = torch.clip(x, -1, 1)
+
         x_history[i] = x
         y_history[i] = y
 
-        y[cp.abs(x) > 1] = 0
-        x = cp.clip(x, -1, 1)
-
-        if (cp.abs(x) == 1).all():
+        if (torch.abs(x) == 1).all():
             break
 
     x_history = x_history[: i + 1]
     y_history = y_history[: i + 1]
 
-    t = cp.arange(len(x_history))[:, None] * eta
+    t = torch.arange(len(x_history), device=J.device)[:, None] * eta
     g_history = -(1 - k_p * t) * x_history + xi * x_history @ J
-    V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * cp.einsum("tn,tm,nm->t", x_history, x_history, J)
+    V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * torch.einsum("tn,tm,nm->t", x_history, x_history, J)
 
     return SBResult(x_history, y_history, g_history, V_history)
 
 
-def _dSB(J, k_p, xi, eta, max_steps, seed, progress_bar):
+def _dSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar):
     N = J.shape[0]
 
-    cp.random.seed(seed)
-    x0 = 0.02 * cp.random.uniform(-1, 1, N)
-    y0 = cp.zeros(N)
-
-    x_history = cp.zeros((max_steps, N))
-    y_history = cp.zeros((max_steps, N))
-    x_history[0] = x = x0.copy()
-    y_history[0] = y = y0.copy()
+    x_history = torch.zeros((max_steps, N), device=J.device)
+    y_history = torch.zeros((max_steps, N), device=J.device)
+    x_history[0] = x = torch.clone(x0)
+    y_history[0] = y = torch.clone(y0)
 
     iterator = tqdm(range(max_steps), desc="dSB Progress", disable=not progress_bar)
     for i in iterator:
         t = i * eta
 
-        g = -(1 - k_p * t) * x + xi * J @ cp.sign(x)
+        g = -(1 - k_p * t) * x + xi * J @ torch.sign(x)
         x += y * eta
         y += g * eta
+
+        y[torch.abs(x) > 1] = 0
+        x = torch.clip(x, -1, 1)
 
         x_history[i] = x
         y_history[i] = y
 
-        y[cp.abs(x) > 1] = 0
-        x = cp.clip(x, -1, 1)
-
-        if (cp.abs(x) == 1).all():
+        if (torch.abs(x) == 1).all():
             break
 
     x_history = x_history[: i + 1]
     y_history = y_history[: i + 1]
 
-    t = cp.arange(len(x_history))[:, None] * eta
-    g_history = -(1 - k_p * t) * x_history + xi * cp.sign(x_history) @ J
-    V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * cp.einsum("tn,tm,nm->t", x_history, cp.sign(x_history), J)
+    t = torch.arange(len(x_history), device=J.device)[:, None] * eta
+    g_history = -(1 - k_p * t) * x_history + xi * torch.sign(x_history) @ J
+    V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * torch.einsum("tn,tm,nm->t", x_history, torch.sign(x_history), J)
 
     return SBResult(x_history, y_history, g_history, V_history)
 
 
 def R(x, r):
-    x_floor = cp.floor(x)
-    x_ceil = cp.ceil(x)
+    x_floor = torch.floor(x)
+    x_ceil = torch.ceil(x)
     x_decimal = x - x_floor
 
     x_out = x_floor
@@ -152,44 +152,40 @@ def R(x, r):
     return x_out
 
 
-def _sSB(J, k_p, xi, eta, max_steps, seed, progress_bar, clip=True):
+def _sSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar, rng, clip=True):
     N = J.shape[0]
 
-    cp.random.seed(seed)
-    x0 = cp.random.uniform(-1, 1, N) / N
-    y0 = cp.zeros(N)
-
-    x_history = cp.zeros((max_steps, N))
-    X_history = cp.zeros((max_steps, N))
-    y_history = cp.zeros((max_steps, N))
-    g_history = cp.zeros((max_steps, N))
-    x_history[0] = x = x0.copy()
-    y_history[0] = y = y0.copy()
+    x_history = torch.zeros((max_steps, N), device=J.device)
+    X_history = torch.zeros((max_steps, N), device=J.device)
+    y_history = torch.zeros((max_steps, N), device=J.device)
+    g_history = torch.zeros((max_steps, N), device=J.device)
+    x_history[0] = x = torch.clone(x0)
+    y_history[0] = y = torch.clone(y0)
 
     iterator = tqdm(range(max_steps), desc="sSB Progress", disable=not progress_bar)
     for i in iterator:
         t = i * eta
 
-        X = R(x, cp.random.rand(N))
+        X = R(x, torch.rand(N, device=J.device, generator=rng))
         g = -(1 - k_p * t) * x + xi * J @ X
         if clip:
-            g = cp.clip(g, -1, 1)
+            g = torch.clip(g, -1, 1)
 
-        x += R(y, cp.random.rand(N)) * eta
-        y += R(g, cp.random.rand(N)) * eta
+        x += R(y, torch.rand(N, device=J.device, generator=rng)) * eta
+        y += R(g, torch.rand(N, device=J.device, generator=rng)) * eta
+
+        y[torch.abs(x) > 1] = 0
+        x = torch.clip(x, -1, 1)
+
+        if clip:
+            y = torch.clip(y, -1, 1)
 
         x_history[i] = x
         X_history[i] = X
         y_history[i] = y
         g_history[i] = g
 
-        y[cp.abs(x) > 1] = 0
-        x = cp.clip(x, -1, 1)
-
-        if clip:
-            y = cp.clip(y, -1, 1)
-
-        if (cp.abs(x) == 1).all():
+        if (torch.abs(x) == 1).all():
             break
 
     x_history = x_history[: i + 1]
@@ -197,14 +193,14 @@ def _sSB(J, k_p, xi, eta, max_steps, seed, progress_bar, clip=True):
     y_history = y_history[: i + 1]
     g_history = g_history[: i + 1]
 
-    t = cp.arange(len(x_history))[:, None] * eta
-    V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * cp.einsum("tn,tm,nm->t", x_history, X_history, J)
+    t = torch.arange(len(x_history), device=J.device)[:, None] * eta
+    V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * torch.einsum("tn,tm,nm->t", x_history, X_history, J)
 
-    return SBResult(x_history, y_history, g_history, V_history, None, None)
+    return SBResult(x_history, y_history, g_history, V_history, X_history)
 
 
 def run(
-    J,
+    J: torch.Tensor,
     method: Literal["aSB", "bSB", "dSB", "sSB"],
     *,
     k_p=2**-11,
@@ -213,14 +209,13 @@ def run(
     max_steps=None,
     seed=42,
     progress_bar=False,
-    **kwargs,
 ) -> SBResult:
     """
     Run the SB algorithm.
 
     Parameters
     ----------
-    J : cupy.ndarray
+    J : torch.Tensor
         The input ising matrix (neg of the coupling matrix).
     method : str
         The method to use. One of "aSB", "bSB", "dSB", "sSB".
@@ -237,8 +232,7 @@ def run(
     progress_bar : bool
         Whether to show a progress bar.
     """
-    if not isinstance(J, cp.ndarray):
-        raise TypeError("J must be a cupy array.")
+
     if J.ndim != 2:
         raise ValueError("J must be a 2D array.")
     if J.shape[0] != J.shape[1]:
@@ -250,21 +244,31 @@ def run(
     if max_steps is None:
         max_steps = int(2 / k_p / eta)
 
+    N = J.shape[0]
+
+    rng = torch.Generator(device=J.device)
+    rng.manual_seed(seed)
+
+    x0 = (2 * torch.rand(N, device=J.device, generator=rng) - 1) / N
+    y0 = torch.zeros(N, device=J.device)
+
     match method:
         case "aSB":
-            r = _aSB(J, k_p, xi, eta, max_steps, seed, progress_bar)
+            r = _aSB(J, x0, y0, k_p, xi, eta, max_steps, progress_bar)
         case "bSB":
-            r = _bSB(J, k_p, xi, eta, max_steps, seed, progress_bar)
+            r = _bSB(J, x0, y0, k_p, xi, eta, max_steps, progress_bar)
         case "dSB":
-            r = _dSB(J, k_p, xi, eta, max_steps, seed, progress_bar)
+            r = _dSB(J, x0, y0, k_p, xi, eta, max_steps, progress_bar)
         case "sSB":
-            r = _sSB(J, k_p, xi, eta, max_steps, seed, progress_bar, **kwargs)
+            r = _sSB(J, x0, y0, k_p, xi, eta, max_steps, progress_bar, rng, clip=True)
+        case "sSB_noclip":
+            r = _sSB(J, x0, y0, k_p, xi, eta, max_steps, progress_bar, rng, clip=False)
         case _:
             raise ValueError(f"Unknown method: {method}. Supported methods are: aSB, bSB, dSB, sSB.")
 
     r.H = 1 / 2 * (r.y**2).sum(-1) + r.V
 
-    x = cp.sign(r.x)
-    r.cut = (-J.sum() + cp.einsum("tn,tm,nm->t", x, x, J)) / 4
+    x = torch.sign(r.x)
+    r.cut = (-J.sum() + torch.einsum("tn,tm,nm->t", x, x, J)) / 4
 
     return r
