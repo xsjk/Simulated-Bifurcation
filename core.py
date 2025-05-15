@@ -1,12 +1,28 @@
 from dataclasses import dataclass
 from typing import Literal
 
+import numpy as np
 import torch
 from tqdm import tqdm
 
 
 @dataclass
-class SBResult:
+class SBHistoryArray:
+    x: np.ndarray
+    y: np.ndarray
+    g: np.ndarray
+    V: np.ndarray
+    X: np.ndarray = None
+    H: np.ndarray = None
+    cut: np.ndarray = None
+
+    @property
+    def best_x(self):
+        return np.sign(self.x[self.cut.argmax()])
+
+
+@dataclass
+class SBHistoryTensor:
     x: torch.Tensor
     y: torch.Tensor
     g: torch.Tensor
@@ -26,20 +42,20 @@ class SBResult:
         return self
 
     def numpy(self):
-        for attr_name, attr_value in self.__dict__.items():
-            if isinstance(attr_value, torch.Tensor):
-                setattr(self, attr_name, attr_value.cpu().numpy())
-        return self
+        return SBHistoryArray(**{attr_name: (attr.cpu().numpy() if isinstance(attr := getattr(self, attr_name), torch.Tensor) else attr) for attr_name in self.__dict__})
 
     @property
     def device(self):
-        return list({getattr(self, attr_name).device for attr_name in self.__dict__ if isinstance(getattr(self, attr_name), torch.Tensor)})
+        return list({a.device for attr_name in self.__dict__ if isinstance(a := getattr(self, attr_name), torch.Tensor)})
+
+    def __getitem__(self, item):
+        return SBHistoryTensor(**{attr_name: getattr(self, attr_name)[item] for attr_name in self.__dict__ if isinstance(getattr(self, attr_name), torch.Tensor)})
 
 
-torch.serialization.add_safe_globals([SBResult])
+torch.serialization.add_safe_globals([SBHistoryTensor])
 
 
-def _aSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar) -> SBResult:
+def _aSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar) -> SBHistoryTensor:
     N = J.shape[0]
 
     x_history = torch.zeros((max_steps, N), device=J.device)
@@ -69,7 +85,7 @@ def _aSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar) -> SBRe
     g_history = -(x_history**2 + (1 - k_p * t)) * x_history + xi * x_history @ J
     V_history = 1 / 4 * (x_history**4).sum(-1) + (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * torch.einsum("tn,tm,nm->t", x_history, x_history, J)
 
-    return SBResult(x_history, y_history, g_history, V_history)
+    return SBHistoryTensor(x_history, y_history, g_history, V_history)
 
 
 def _bSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar):
@@ -104,7 +120,7 @@ def _bSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar):
     g_history = -(1 - k_p * t) * x_history + xi * x_history @ J
     V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * torch.einsum("tn,tm,nm->t", x_history, x_history, J)
 
-    return SBResult(x_history, y_history, g_history, V_history)
+    return SBHistoryTensor(x_history, y_history, g_history, V_history)
 
 
 def _dSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar):
@@ -139,7 +155,7 @@ def _dSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar):
     g_history = -(1 - k_p * t) * x_history + xi * torch.sign(x_history) @ J
     V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * torch.einsum("tn,tm,nm->t", x_history, torch.sign(x_history), J)
 
-    return SBResult(x_history, y_history, g_history, V_history)
+    return SBHistoryTensor(x_history, y_history, g_history, V_history)
 
 
 def R(x, r):
@@ -196,20 +212,20 @@ def _sSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar, rng, cl
     t = torch.arange(len(x_history), device=J.device)[:, None] * eta
     V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * torch.einsum("tn,tm,nm->t", x_history, X_history, J)
 
-    return SBResult(x_history, y_history, g_history, V_history, X_history)
+    return SBHistoryTensor(x_history, y_history, g_history, V_history, X_history)
 
 
 def run(
     J: torch.Tensor,
-    method: Literal["aSB", "bSB", "dSB", "sSB"],
+    method: Literal["aSB", "bSB", "dSB", "sSB", "sSB_clip"],
     *,
-    k_p=2**-11,
-    xi=None,
-    eta=2**-3,
-    max_steps=None,
-    seed=42,
-    progress_bar=False,
-) -> SBResult:
+    k_p: float = 2**-11,
+    xi: float = None,
+    eta: float = 2**-3,
+    max_steps: int = None,
+    seed: int = 42,
+    progress_bar: bool = False,
+) -> SBHistoryTensor:
     """
     Run the SB algorithm.
 
@@ -218,7 +234,7 @@ def run(
     J : torch.Tensor
         The input ising matrix (neg of the coupling matrix).
     method : str
-        The method to use. One of "aSB", "bSB", "dSB", "sSB".
+        The method to use. One of "aSB", "bSB", "dSB", "sSB", "sSB_clip".
     k_p : float
         The increasing rate of the p(t)
     xi : float
@@ -260,9 +276,9 @@ def run(
         case "dSB":
             r = _dSB(J, x0, y0, k_p, xi, eta, max_steps, progress_bar)
         case "sSB":
-            r = _sSB(J, x0, y0, k_p, xi, eta, max_steps, progress_bar, rng, clip=True)
-        case "sSB_noclip":
             r = _sSB(J, x0, y0, k_p, xi, eta, max_steps, progress_bar, rng, clip=False)
+        case "sSB_clip":
+            r = _sSB(J, x0, y0, k_p, xi, eta, max_steps, progress_bar, rng, clip=True)
         case _:
             raise ValueError(f"Unknown method: {method}. Supported methods are: aSB, bSB, dSB, sSB.")
 
@@ -272,3 +288,26 @@ def run(
     r.cut = (-J.sum() + torch.einsum("tn,tm,nm->t", x, x, J)) / 4
 
     return r
+
+
+def run_numpy(
+    J: np.ndarray,
+    method: Literal["aSB", "bSB", "dSB", "sSB", "sSB_clip"],
+    *,
+    k_p: float = 2**-11,
+    xi: float = None,
+    eta: float = 2**-3,
+    max_steps: int = None,
+    seed: int = 42,
+    progress_bar: bool = False,
+) -> SBHistoryArray:
+    return run(
+        torch.tensor(J, dtype=torch.float32, device="cuda" if torch.cuda.is_available() else "cpu"),
+        method=method,
+        k_p=k_p,
+        xi=xi,
+        eta=eta,
+        max_steps=max_steps,
+        seed=seed,
+        progress_bar=progress_bar,
+    ).numpy()
