@@ -16,6 +16,7 @@ def plot_history(
     V_history: np.ndarray,
     H_history: np.ndarray,
     color: str = "purple",
+    alpha: float = 0.9,
     axes: list[plt.Axes] = None,
     t_range: SupportsIndex = None,
     dim_range: SupportsIndex = None,
@@ -46,11 +47,11 @@ def plot_history(
 
     # plot x, y, g
     if isinstance(dim_range, int):
-        alpha = 1
+        pass
     elif isinstance(dim_range, slice):
-        alpha = 5 * (dim_range.step or 1) / (dim_range.stop - dim_range.start)
+        alpha *= (dim_range.step or 1) / (dim_range.stop - dim_range.start)
     else:
-        alpha = 5 / len(dim_range)
+        alpha *= 5 / len(dim_range)
 
     # plot x[0], x[1]
     axes[1].plot(t, x_history[:, dim_range], color=color, alpha=alpha)
@@ -83,7 +84,12 @@ def plot_trajectory(
     dim0: int = None,
     dim1: int = None,
     n_arrows: int = None,
-    point_size: float = 50,
+    trajectory_point_size: float = 1,
+    start_point_size: float = 50,
+    end_point_size: float = 50,
+    xlim: tuple[float, float] = (-1, 1),
+    ylim: tuple[float, float] = (-1, 1),
+    show_bound: bool = False,
     energy_fn: Callable[[np.ndarray, np.ndarray], np.ndarray] = None,
     ax: plt.Axes = None,
 ) -> plt.Axes:
@@ -92,6 +98,10 @@ def plot_trajectory(
 
     x_var = np.var(x_history, axis=0)
     x_var = np.argsort(x_var)[::-1]
+
+    if energy_fn is not None and (dim0 is None or dim1 is None):
+        raise ValueError("dim0 and dim1 must be specified if energy_fn is provided")
+
     if dim0 is None:
         dim0 = x_var[0]
     if dim1 is None:
@@ -106,7 +116,7 @@ def plot_trajectory(
     tmax = np.max(np.where(~np.all(np.isclose(x_history[:, [dim0, dim1]], x_history[-1, [dim0, dim1]], atol=1e-2), axis=1))[0]) * eta
 
     if energy_fn is not None:
-        X, Y = np.meshgrid(np.linspace(-1, 1, 100), np.linspace(-1, 1, 100))
+        X, Y = np.meshgrid(np.linspace(*xlim, 100), np.linspace(*ylim, 100))
         Z = energy_fn(X, Y)
         ct = ax.contourf(X, Y, Z, levels=40, cmap="Blues_r", alpha=0.5)
         plt.colorbar(ct, label="Energy", ax=ax)
@@ -120,24 +130,33 @@ def plot_trajectory(
         vmax=tmax,
         c=t,
         alpha=1,
-        s=1,
+        s=trajectory_point_size,
+        linewidths=0,
         cmap="Greys",
-        linewidth=0.5,
         marker="o",
     )
 
     # show the start and end points
-    ax.scatter(x_history[0, dim0], x_history[0, dim1], c="white", s=point_size, label="Start", zorder=100)
-    ax.scatter(x_history[-1, dim0], x_history[-1, dim1], c="black", s=point_size, label="End", zorder=100)
+    ax.scatter(x_history[0, dim0], x_history[0, dim1], c="white", s=start_point_size, label="Start", zorder=100)
+    ax.scatter(x_history[-1, dim0], x_history[-1, dim1], c="black", s=end_point_size, label="End", zorder=100)
 
     ax.set_xlabel(f"$x_{{{dim0}}}$")
     ax.set_ylabel(f"$x_{{{dim1}}}$")
     ax.grid(alpha=0.3)
     ax.set_aspect("equal")
     ax.legend()
-    ax.set_xlim(-1, 1)
-    ax.set_ylim(-1, 1)
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
     plt.colorbar(points, label="Time", ax=ax)
+
+    if show_bound:
+        color = "black" if energy_fn is None else "grey"
+        linestyle = "solid" if energy_fn is None else "dashed"
+        alpha = 0.9 if energy_fn is None else 0.5
+        ax.plot([-1, 1], [-1, -1], color=color, linestyle=linestyle, alpha=alpha)
+        ax.plot([-1, 1], [1, 1], color=color, linestyle=linestyle, alpha=alpha)
+        ax.plot([-1, -1], [-1, 1], color=color, linestyle=linestyle, alpha=alpha)
+        ax.plot([1, 1], [-1, 1], color=color, linestyle=linestyle, alpha=alpha)
 
     # Add arrows to show direction
     if n_arrows is not None:
@@ -146,7 +165,17 @@ def plot_trajectory(
             idx = int(i * dt)
             if idx >= T - 1:
                 break
-            ax.arrow(x_history[idx, dim0], x_history[idx, dim1], x_history[idx + 1, dim0] - x_history[idx, dim0], x_history[idx + 1, dim1] - x_history[idx, dim1], head_width=0.05, head_length=0.05, fc="white", ec="white", alpha=0.5)
+            ax.arrow(
+                x_history[idx, dim0],
+                x_history[idx, dim1],
+                x_history[idx + 1, dim0] - x_history[idx, dim0],
+                x_history[idx + 1, dim1] - x_history[idx, dim1],
+                head_width=0.05,
+                head_length=0.05,
+                fc="white",
+                ec="white",
+                alpha=0.5,
+            )
 
     return ax
 
@@ -157,7 +186,9 @@ def plot_time_hist(
     n_slice: int = 20,
     n_bins: int = 40,
     vmax: float = 0.1,
+    ylim: tuple[float, float] = (-1, 1),
     ax: plt.Axes = None,
+    colorbar: bool = True,
 ) -> plt.Axes:
     T, N = history.shape
     dt = T * eta / n_slice
@@ -165,23 +196,36 @@ def plot_time_hist(
     if ax is None:
         fig, ax = plt.subplots(figsize=(8, 4))
 
-    bins = np.linspace(-1, 1, n_bins)
+    bins = np.linspace(*ylim, n_bins)
+    history = np.clip(history, *ylim)
     heatmap = np.zeros((len(bins) - 1, n_slice))
 
     # For each time slice, compute histogram
     for i in range(n_slice):
-        time_slice = history[(T // n_slice) * i : (T // n_slice) * (i + 1)].flatten()
+        time_slice = history[T * i // n_slice : T * (i + 1) // n_slice].flatten()
+        if len(time_slice) == 0:
+            continue
         hist, _ = np.histogram(time_slice, bins=bins, density=True)
         heatmap[:, i] = hist
 
     # Normalize
-    heatmap = heatmap / np.max(heatmap)
+    heatmap = heatmap / heatmap[np.isfinite(heatmap)].max()
 
-    im = ax.imshow(heatmap, aspect="auto", origin="lower", extent=[0, dt * n_slice, bins[0], bins[-1]], cmap="Blues", vmin=0, vmax=vmax, interpolation="nearest")
+    im = ax.imshow(
+        heatmap,
+        aspect="auto",
+        origin="lower",
+        extent=[0, dt * n_slice, bins[0], bins[-1]],
+        cmap="Blues",
+        vmin=0,
+        vmax=vmax,
+        interpolation="nearest",
+    )
 
-    cbar = plt.colorbar(im, ax=ax)
-    cbar.set_ticks([])
-    cbar.set_label("Density")
+    if colorbar:
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_ticks([])
+        cbar.set_label("Density")
 
     ax.set_xlabel("Time")
     ax.grid(False)
