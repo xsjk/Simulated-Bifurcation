@@ -55,6 +55,35 @@ class SBHistoryTensor:
 torch.serialization.add_safe_globals([SBHistoryTensor])
 
 
+def qform(J, x1, x2=None):
+    """
+    Given a batch of vectors x (shape: [batch_size, n]) and a matrix J (shape: [n, n]),
+    this function computes the quadratic form x^T J x for each vector in the batch.
+
+    Parameters
+    ----------
+    J : torch.Tensor
+        A matrix of shape [n, n].
+    x1 : torch.Tensor
+        A batch of vectors of shape [batch_size, n].
+    x2 : torch.Tensor
+        A batch of vectors of shape [batch_size, n].
+        If not provided, x1 is used for the quadratic form.
+
+    Returns
+    -------
+    torch.Tensor
+        A tensor of shape [batch_size] containing the quadratic form for each vector in the batch.
+
+    """
+    x2 = x1 if x2 is None else x2
+    assert J.shape[0] == J.shape[1] == x1.shape[1] == x2.shape[1], "J must be a square matrix of shape [n, n] and x1, x2 must have the same second dimension as J."
+    return torch.einsum("bn,nm,bm->b", x1, J, x2)
+    # When using torch.einsum, although 'bi,bj,ij->b' and 'bi,ij,bj->b' are mathematically equivalent,
+    # the former broadcasts x to shape [batch_size, n, batch_size], which can cause excessive memory usage.
+    # The latter ('bi,ij,bj->b'), as used here, avoids this issue and is more memory efficient.
+
+
 def _aSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar) -> SBHistoryTensor:
     N = J.shape[0]
 
@@ -83,7 +112,7 @@ def _aSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar) -> SBHi
 
     t = torch.arange(len(x_history), device=J.device)[:, None] * eta
     g_history = -(x_history**2 + (1 - k_p * t)) * x_history + xi * x_history @ J
-    V_history = 1 / 4 * (x_history**4).sum(-1) + (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * torch.einsum("tn,tm,nm->t", x_history, x_history, J)
+    V_history = 1 / 4 * (x_history**4).sum(-1) + (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * qform(J, x_history)
 
     return SBHistoryTensor(x_history, y_history, g_history, V_history)
 
@@ -118,7 +147,7 @@ def _bSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar):
 
     t = torch.arange(len(x_history), device=J.device)[:, None] * eta
     g_history = -(1 - k_p * t) * x_history + xi * x_history @ J
-    V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * torch.einsum("tn,tm,nm->t", x_history, x_history, J)
+    V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * qform(J, x_history)
 
     return SBHistoryTensor(x_history, y_history, g_history, V_history)
 
@@ -153,7 +182,7 @@ def _dSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar):
 
     t = torch.arange(len(x_history), device=J.device)[:, None] * eta
     g_history = -(1 - k_p * t) * x_history + xi * torch.sign(x_history) @ J
-    V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * torch.einsum("tn,tm,nm->t", x_history, torch.sign(x_history), J)
+    V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * qform(J, x_history, torch.sign(x_history))
 
     return SBHistoryTensor(x_history, y_history, g_history, V_history)
 
@@ -210,7 +239,7 @@ def _sSB(J: torch.Tensor, x0, y0, k_p, xi, eta, max_steps, progress_bar, rng, cl
     g_history = g_history[: i + 1]
 
     t = torch.arange(len(x_history), device=J.device)[:, None] * eta
-    V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * torch.einsum("tn,tm,nm->t", x_history, X_history, J)
+    V_history = (1 - k_p * t.flatten()) / 2 * (x_history**2).sum(-1) - xi * qform(J, x_history, X_history)
 
     return SBHistoryTensor(x_history, y_history, g_history, V_history, X_history)
 
@@ -285,7 +314,7 @@ def run(
     r.H = 1 / 2 * (r.y**2).sum(-1) + r.V
 
     x = torch.sign(r.x)
-    r.cut = (-J.sum() + torch.einsum("tn,tm,nm->t", x, x, J)) / 4
+    r.cut = (-J.sum() + qform(J, x)) / 4
 
     return r
 
