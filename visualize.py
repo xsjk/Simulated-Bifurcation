@@ -236,6 +236,7 @@ def plot_time_hist(
 def plot_history_compare(
     eta: float,
     histories: dict[str, np.ndarray],
+    histories_std: dict[str, np.ndarray] = None,
     ylabel: str = "Value",
     cmap: str | Colormap = "Darks",
     alpha: float = 0.8,
@@ -256,7 +257,16 @@ def plot_history_compare(
 
     for i, (label, history) in enumerate(histories.items()):
         t = np.arange(history.shape[0]) * eta
-        ax.plot(t, history, label=label, color=cmap(i / len(histories)), alpha=alpha)
+        color = cmap(i / len(histories))
+        ax.plot(t, history, label=label, color=color, alpha=alpha)
+        if histories_std is not None:
+            ax.fill_between(
+                t,
+                history - histories_std[label],
+                history + histories_std[label],
+                color=color,
+                alpha=0.1,
+            )
 
     ax.legend()
     ax.set_xscale("log")
@@ -284,14 +294,23 @@ def plot_history_compare(
 
         for i, (label, history) in enumerate(histories.items()):
             t = np.arange(history.shape[0]) * eta
-            axins.plot(t, history, color=cmap(i / len(histories)), alpha=alpha)
+            color = cmap(i / len(histories))
+            axins.plot(t, history, color=color, alpha=alpha)
+            if histories_std is not None:
+                axins.fill_between(
+                    t,
+                    history - histories_std[label],
+                    history + histories_std[label],
+                    color=color,
+                    alpha=0.1,
+                )
 
             if show_max:
                 max_value = max_values[label]
                 if max_value > y1 and max_value < y2:
                     axins.axhline(
                         max_value,
-                        color=cmap(i / len(histories)),
+                        color=color,
                         linestyle="--",
                         linewidth=1,
                     )
@@ -299,7 +318,7 @@ def plot_history_compare(
                         x=x2,
                         y=max_value + max_text_offset.get(label, 0),
                         s=f" {label} max={max_value:.0f}",
-                        color=cmap(i / len(histories)),
+                        color=color,
                         fontsize=10,
                         ha="left",
                         va="center_baseline",
