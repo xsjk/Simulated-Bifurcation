@@ -314,8 +314,11 @@ def run(
     r.H = 1 / 2 * (r.y**2).sum(-1) + r.V
 
     x = torch.sign(r.x)
-    r.cut = (-J.sum() + qform(J, x)) / 4
-
+    x[x == 0] = 1
+    assert ((x == 1) | (x == -1)).all(), "x must be a valid configuration of the Ising model."
+    cut = (-J.sum() + qform(J, x)) / 4
+    r.cut = cut.to(dtype=torch.int32)
+    assert (cut == r.cut).all(), "cut must be an integer value."
     return r
 
 
