@@ -11,29 +11,29 @@ import core
 methods = ["bSB", "dSB", "sSB"]
 seeds = list(range(128))
 
-k_ps = 2.0 ** np.arange(-11, -6, 1)
-etas = 2.0 ** np.arange(-4, 1, 1)
+betas = 2.0 ** np.arange(-8, -7, 1)
+etas = 2.0 ** np.arange(-6, -5, 1)
 
 
-def run_method(queue, J, device, seeds, k_ps, etas):
+def run_method(queue, J, device, seeds, betas, etas):
     J = J.to(device)
     for method in methods:
         for seed in seeds:
-            for k_p in k_ps:
+            for beta in betas:
                 for eta in etas:
                     result: core.SBHistoryTensor = core.run(
                         J,
                         method=method,
-                        k_p=k_p,
+                        beta=beta,
                         eta=eta,
                         seed=seed,
                         progress_bar=False,
                     )
-                    queue.put((method, seed, k_p, eta, result.cut.cpu().numpy()))
+                    queue.put((method, seed, beta, eta, result.cut.cpu().numpy()))
 
 
 if __name__ == "__main__":
-    results_save_path = f"cut_values/k_ps={k_ps}_etas={etas}.pkl"
+    results_save_path = f"cut_values/betas={betas}_etas={etas}.pkl"
     if os.path.exists(results_save_path):
         print(f"Result file {results_save_path} already exists. Exiting.")
         exit(0)
@@ -44,12 +44,12 @@ if __name__ == "__main__":
     N = J.shape[0]
 
     results = {}
-    for k_p in k_ps:
+    for beta in betas:
         for eta in etas:
-            results[(k_p, eta)] = {}
+            results[(beta, eta)] = {}
             for method in methods:
-                # results[(k_p, eta)][method] = np.full(len(seeds), np.nan)
-                results[(k_p, eta)][method] = {}
+                # results[(beta, eta)][method] = np.full(len(seeds), np.nan)
+                results[(beta, eta)][method] = {}
 
     num_devices = torch.cuda.device_count()
     process_per_device = 2
@@ -68,16 +68,16 @@ if __name__ == "__main__":
                 J,
                 f"cuda:{i % num_devices}",
                 seeds[i * chunk_size : (i + 1) * chunk_size],
-                k_ps,
+                betas,
                 etas,
             ),
         )
         p.start()
         processes.append(p)
 
-    for _ in tqdm(range(len(methods) * len(seeds) * len(k_ps) * len(etas))):
-        (method, seed, k_p, eta, result) = queue.get()
-        results[(k_p, eta)][method][seed] = result
+    for _ in tqdm(range(len(methods) * len(seeds) * len(betas) * len(etas))):
+        (method, seed, beta, eta, result) = queue.get()
+        results[(beta, eta)][method][seed] = result
 
     for p in processes:
         p.join()
