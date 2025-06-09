@@ -12,12 +12,13 @@ class SBHistoryArray:
     y: np.ndarray
     g: np.ndarray
     V: np.ndarray
-    X: np.ndarray = None
-    H: np.ndarray = None
-    cut: np.ndarray = None
+    X: np.ndarray | None = None
+    H: np.ndarray | None = None
+    cut: np.ndarray | None = None
 
     @property
     def best_x(self):
+        assert self.cut is not None, "cut is None"
         return np.sign(self.x[self.cut.argmax()])
 
 
@@ -27,12 +28,13 @@ class SBHistoryTensor:
     y: torch.Tensor
     g: torch.Tensor
     V: torch.Tensor
-    X: torch.Tensor = None
-    H: torch.Tensor = None
-    cut: torch.Tensor = None
+    X: torch.Tensor | None = None
+    H: torch.Tensor | None = None
+    cut: torch.Tensor | None = None
 
     @property
     def best_x(self):
+        assert self.cut is not None, "cut is None"
         return torch.sign(self.x[self.cut.argmax()])
 
     def to(self, device):
@@ -84,7 +86,7 @@ def qform(J, x1, x2=None):
     # The latter ('bi,ij,bj->b'), as used here, avoids this issue and is more memory efficient.
 
 
-def _aSB(J: torch.Tensor, x0, y0, beta, xi, eta, max_steps, progress_bar) -> SBHistoryTensor:
+def _aSB(J: torch.Tensor, x0: torch.Tensor, y0: torch.Tensor, beta: float, xi: float, eta: float, max_steps: int, progress_bar: bool) -> SBHistoryTensor:
     N = J.shape[0]
 
     x_history = torch.zeros((max_steps, N), device=J.device)
@@ -117,7 +119,7 @@ def _aSB(J: torch.Tensor, x0, y0, beta, xi, eta, max_steps, progress_bar) -> SBH
     return SBHistoryTensor(x_history, y_history, g_history, V_history)
 
 
-def _bSB(J: torch.Tensor, x0, y0, beta, xi, eta, max_steps, progress_bar):
+def _bSB(J: torch.Tensor, x0: torch.Tensor, y0: torch.Tensor, beta: float, xi: float, eta: float, max_steps: int, progress_bar: bool) -> SBHistoryTensor:
     N = J.shape[0]
 
     x_history = torch.zeros((max_steps, N), device=J.device)
@@ -152,7 +154,7 @@ def _bSB(J: torch.Tensor, x0, y0, beta, xi, eta, max_steps, progress_bar):
     return SBHistoryTensor(x_history, y_history, g_history, V_history)
 
 
-def _dSB(J: torch.Tensor, x0, y0, beta, xi, eta, max_steps, progress_bar):
+def _dSB(J: torch.Tensor, x0: torch.Tensor, y0: torch.Tensor, beta: float, xi: float, eta: float, max_steps: int, progress_bar: bool) -> SBHistoryTensor:
     N = J.shape[0]
 
     x_history = torch.zeros((max_steps, N), device=J.device)
@@ -187,7 +189,7 @@ def _dSB(J: torch.Tensor, x0, y0, beta, xi, eta, max_steps, progress_bar):
     return SBHistoryTensor(x_history, y_history, g_history, V_history)
 
 
-def R(x, r):
+def R(x: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
     x_floor = torch.floor(x)
     x_ceil = torch.ceil(x)
     x_decimal = x - x_floor
@@ -197,7 +199,7 @@ def R(x, r):
     return x_out
 
 
-def _sSB(J: torch.Tensor, x0, y0, beta, xi, eta, max_steps, progress_bar, rng, clip=True):
+def _sSB(J: torch.Tensor, x0: torch.Tensor, y0: torch.Tensor, beta: float, xi: float, eta: float, max_steps: int, progress_bar: bool, rng: torch.Generator, clip: bool = True) -> SBHistoryTensor:
     N = J.shape[0]
 
     x_history = torch.zeros((max_steps, N), device=J.device)
@@ -244,14 +246,17 @@ def _sSB(J: torch.Tensor, x0, y0, beta, xi, eta, max_steps, progress_bar, rng, c
     return SBHistoryTensor(x_history, y_history, g_history, V_history, X_history)
 
 
+type MethodType = Literal["aSB", "bSB", "dSB", "sSB", "sSB_clip"]
+
+
 def run(
     J: torch.Tensor,
-    method: Literal["aSB", "bSB", "dSB", "sSB", "sSB_clip"],
+    method: MethodType,
     *,
     beta: float = 2**-11,
-    xi: float = None,
+    xi: float | None = None,
     eta: float = 2**-3,
-    max_steps: int = None,
+    max_steps: int | None = None,
     seed: int = 42,
     progress_bar: bool = False,
 ) -> SBHistoryTensor:
@@ -289,6 +294,10 @@ def run(
     if max_steps is None:
         max_steps = int(2 / beta / eta)
 
+    # Type assertions after None checks
+    assert xi is not None
+    assert max_steps is not None
+
     N = J.shape[0]
 
     rng = torch.Generator(device=J.device)
@@ -324,12 +333,12 @@ def run(
 
 def run_numpy(
     J: np.ndarray,
-    method: Literal["aSB", "bSB", "dSB", "sSB", "sSB_clip"],
+    method: MethodType,
     *,
     beta: float = 2**-11,
-    xi: float = None,
+    xi: float | None = None,
     eta: float = 2**-3,
-    max_steps: int = None,
+    max_steps: int | None = None,
     seed: int = 42,
     progress_bar: bool = False,
 ) -> SBHistoryArray:

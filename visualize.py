@@ -1,9 +1,10 @@
-from typing import Callable, SupportsIndex
+from typing import Callable
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import colormaps
-from matplotlib.colors import Colormap, LogNorm
+from matplotlib.axes import Axes
+from matplotlib.colors import Colormap
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 
 
@@ -17,13 +18,13 @@ def plot_history(
     H_history: np.ndarray,
     color: str = "purple",
     alpha: float = 0.9,
-    axes: list[plt.Axes] = None,
-    t_range: SupportsIndex = None,
-    dim_range: SupportsIndex = None,
+    axes: list[Axes] | None = None,
+    t_range: slice | None = None,
+    dim_range: slice | range | None = None,
     ylabel: bool = True,
-) -> list[plt.Axes]:
-    T, N = x_history.shape
-    t = np.arange(T)[:, None] * eta
+) -> list[Axes]:
+    T, _N = x_history.shape
+    t = np.arange(T, dtype=float)[:, None] * eta
 
     if t_range is not None:
         x_history = x_history[t_range]
@@ -34,23 +35,51 @@ def plot_history(
         t = t[t_range]
 
     if dim_range is None:
-        dim_range = slice(0, min(20, N))
+        dim_range = slice(0, min(20, _N))
 
     if axes is None:
-        fig, axes = plt.subplots(4, 1, figsize=(7, 8), sharex=True)
+        _fig, axes = plt.subplots(4, 1, figsize=(7, 8), sharex=True)
 
-    # plot V, H
+    # Type assertion: axes is guaranteed to be not None after the check above
+    assert axes is not None
+
+    # Now axes is guaranteed to be not None
+    plot_V_H(axes, t, V_history, H_history, title, color)
+    plot_xyz_data(axes, t, x_history, y_history, g_history, title, color, alpha, dim_range)
+
+    if ylabel:
+        set_ylabels(axes)
+
+    return axes
+
+
+def plot_V_H(axes: list[Axes], t: np.ndarray, V_history: np.ndarray, H_history: np.ndarray, title: str, color: str) -> None:
     axes[0].plot(t, V_history, label=rf"$V_\text{{{title}}}$", color=color, alpha=0.5)
     axes[0].plot(t, H_history, label=rf"$H_\text{{{title}}}$", color="black", alpha=0.5)
     axes[0].grid(alpha=0.5)
     axes[0].legend(loc="upper right")
 
+
+def plot_xyz_data(
+    axes: list[Axes],
+    t: np.ndarray,
+    x_history: np.ndarray,
+    y_history: np.ndarray,
+    g_history: np.ndarray,
+    title: str,
+    color: str,
+    alpha: float,
+    dim_range: slice | range | None,
+) -> None:
     # plot x, y, g
     if isinstance(dim_range, int):
-        pass
+        # No specific behavior implemented for integer dim_range.
+        # Consider adding functionality if needed or leave as is intentionally.
+        alpha *= 1  # Placeholder for potential future implementation
     elif isinstance(dim_range, slice):
-        alpha *= (dim_range.step or 1) / (dim_range.stop - dim_range.start)
-    else:
+        if dim_range.stop is not None and dim_range.start is not None:
+            alpha *= (dim_range.step or 1) / (dim_range.stop - dim_range.start)
+    elif dim_range is not None:  # range type
         alpha *= 5 / len(dim_range)
 
     # plot x[0], x[1]
@@ -69,30 +98,29 @@ def plot_history(
     axes[3].set_xlabel("Time (s)")
     axes[3].legend([rf"$\mathbf{{g}}_\text{{{title}}}$"], loc="upper right")
 
-    if ylabel:
-        axes[0].set_ylabel("Energy")
-        axes[1].set_ylabel("x")
-        axes[2].set_ylabel("y")
-        axes[3].set_ylabel("g")
 
-    return axes
+def set_ylabels(axes: list[Axes]) -> None:
+    axes[0].set_ylabel("Energy")
+    axes[1].set_ylabel("x")
+    axes[2].set_ylabel("y")
+    axes[3].set_ylabel("g")
 
 
 def plot_trajectory(
     eta: float,
     x_history: np.ndarray,
-    dim0: int = None,
-    dim1: int = None,
-    n_arrows: int = None,
+    dim0: int | None = None,
+    dim1: int | None = None,
+    n_arrows: int | None = None,
     trajectory_point_size: float = 1,
     start_point_size: float = 50,
     end_point_size: float = 50,
     xlim: tuple[float, float] = (-1, 1),
     ylim: tuple[float, float] = (-1, 1),
     show_bound: bool = False,
-    energy_fn: Callable[[np.ndarray, np.ndarray], np.ndarray] = None,
-    ax: plt.Axes = None,
-) -> plt.Axes:
+    energy_fn: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
+    ax: Axes | None = None,
+) -> Axes:
     if ax is None:
         ax = plt.gca()
 
@@ -107,8 +135,10 @@ def plot_trajectory(
     if dim1 is None:
         dim1 = x_var[1]
 
-    T, N = x_history.shape
-    t = np.arange(T) * eta
+    assert dim0 is not None and dim1 is not None  # Type assertion after None checks
+
+    T, _N = x_history.shape
+    t = np.arange(T, dtype=float) * eta
 
     # the time that (x_dim0, x_dim1) is going to leave the initial position
     tmin = np.min(np.where(~np.all(np.isclose(x_history[:, [dim0, dim1]], x_history[0, [dim0, dim1]], atol=1e-2), axis=1))[0]) * eta
@@ -126,8 +156,8 @@ def plot_trajectory(
         x_history[:, dim0],
         x_history[:, dim1],
         # norm=LogNorm(vmin=eta, vmax=tmax),
-        vmin=tmin,
-        vmax=tmax,
+        vmin=float(tmin),
+        vmax=float(tmax),
         c=t,
         alpha=1,
         s=trajectory_point_size,
@@ -166,10 +196,10 @@ def plot_trajectory(
             if idx >= T - 1:
                 break
             ax.arrow(
-                x_history[idx, dim0],
-                x_history[idx, dim1],
-                x_history[idx + 1, dim0] - x_history[idx, dim0],
-                x_history[idx + 1, dim1] - x_history[idx, dim1],
+                float(x_history[idx, dim0]),
+                float(x_history[idx, dim1]),
+                float(x_history[idx + 1, dim0] - x_history[idx, dim0]),
+                float(x_history[idx + 1, dim1] - x_history[idx, dim1]),
                 head_width=0.05,
                 head_length=0.05,
                 fc="white",
@@ -187,14 +217,14 @@ def plot_time_hist(
     n_bins: int = 40,
     vmax: float = 0.1,
     ylim: tuple[float, float] = (-1, 1),
-    ax: plt.Axes = None,
+    ax: Axes | None = None,
     colorbar: bool = True,
-) -> plt.Axes:
-    T, N = history.shape
+) -> Axes:
+    T, _N = history.shape
     dt = T * eta / n_slice
 
     if ax is None:
-        fig, ax = plt.subplots(figsize=(8, 4))
+        _fig, ax = plt.subplots(figsize=(8, 4))
 
     bins = np.linspace(*ylim, n_bins)
     history = np.clip(history, *ylim)
@@ -215,7 +245,7 @@ def plot_time_hist(
         heatmap,
         aspect="auto",
         origin="lower",
-        extent=[0, dt * n_slice, bins[0], bins[-1]],
+        extent=(0, dt * n_slice, float(bins[0]), float(bins[-1])),
         cmap="Blues",
         vmin=0,
         vmax=vmax,
@@ -236,19 +266,19 @@ def plot_time_hist(
 def plot_history_compare(
     eta: float,
     histories: dict[str, np.ndarray],
-    histories_std: dict[str, np.ndarray] = None,
+    histories_std: dict[str, np.ndarray] | None = None,
     ylabel: str = "Value",
     cmap: str | Colormap = "Darks",
     alpha: float = 0.8,
-    xlim: tuple[float, float] = (None, None),
-    ylim: tuple[float, float] = (None, None),
+    xlim: tuple[float, float] | None = None,
+    ylim: tuple[float, float] | None = None,
     show_max: bool = False,
     max_text_offset: dict[str, float] = {},
-    inset_zoom: tuple[tuple[float, float], tuple[float, float]] = None,  # ((x1,x2), (y1,y2))
-    ax: plt.Axes = None,
-) -> tuple[plt.Axes, plt.Axes]:
+    inset_zoom: tuple[tuple[float, float], tuple[float, float]] | None = None,  # ((x1,x2), (y1,y2))
+    ax: Axes | None = None,
+) -> tuple[Axes, Axes | None]:
     if ax is None:
-        fig, ax = plt.subplots(figsize=(6, 5))
+        _fig, ax = plt.subplots(figsize=(6, 5))
 
     if isinstance(cmap, str):
         cmap = colormaps[cmap]
@@ -256,7 +286,7 @@ def plot_history_compare(
     assert isinstance(cmap, Colormap), f"Invalid colormap: {cmap}"
 
     for i, (label, history) in enumerate(histories.items()):
-        t = np.arange(history.shape[0]) * eta
+        t = np.arange(history.shape[0], dtype=float) * eta
         color = cmap(i / len(histories))
         ax.plot(t, history, label=label, color=color, alpha=alpha)
         if histories_std is not None:
@@ -279,7 +309,7 @@ def plot_history_compare(
     # Add inset axes if zoom region is specified
     if inset_zoom is not None:
         (x1, x2), (y1, y2) = inset_zoom
-        axins = inset_axes(
+        axins: Axes = inset_axes(
             ax,
             width="80%",
             height="90%",
@@ -293,7 +323,7 @@ def plot_history_compare(
         max_values = {k: v.max() for k, v in histories.items()}
 
         for i, (label, history) in enumerate(histories.items()):
-            t = np.arange(history.shape[0]) * eta
+            t = np.arange(history.shape[0], dtype=float) * eta
             color = cmap(i / len(histories))
             axins.plot(t, history, color=color, alpha=alpha)
             if histories_std is not None:

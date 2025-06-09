@@ -7,8 +7,9 @@ import torch.multiprocessing as mp
 from tqdm import tqdm
 
 import core
+from core import MethodType, SBHistoryTensor
 
-methods = ["bSB", "dSB", "sSB"]
+methods: list[MethodType] = ["bSB", "dSB", "sSB"]
 seeds = list(range(128))
 
 betas = 2.0 ** np.arange(-8, -7, 1)
@@ -21,7 +22,7 @@ def run_method(queue, J, device, seeds, betas, etas):
         for seed in seeds:
             for beta in betas:
                 for eta in etas:
-                    result: core.SBHistoryTensor = core.run(
+                    result: SBHistoryTensor = core.run(
                         J,
                         method=method,
                         beta=beta,
@@ -29,6 +30,7 @@ def run_method(queue, J, device, seeds, betas, etas):
                         seed=seed,
                         progress_bar=False,
                     )
+                    assert result.cut is not None, "result.cut is None"
                     queue.put((method, seed, beta, eta, result.cut.cpu().numpy()))
 
 

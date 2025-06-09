@@ -2,5 +2,12 @@
 name = "simulated-bifurcation"
 version = "0.1.0"
 readme = "README.md"
-requires-python = ">=3.10"
-dependencies = ["matplotlib", "tqdm", "torch"]
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.10.3",
+    "tqdm>=4.67.1",
+    "torch",
+    "pandas>=2.3.0",
+    "xarray>=2025.4.0",
+    "netcdf4>=1.7.2",
+]
