@@ -12,6 +12,7 @@ from matplotlib.axes import Axes
 
 import visualize
 from core import MethodType, SBHistoryArray, run
+from visualize import KeyType
 
 
 class Solver:
@@ -37,6 +38,7 @@ class Solver:
         max_steps: int | None = None,
         seed: int = 42,
         progress_bar: bool = False,
+        device: str | None = None,
     ) -> SBHistoryArray:
         """
         Run the Simulated Bifurcation algorithm to solve the Ising model.
@@ -59,6 +61,8 @@ class Solver:
             Random seed.
         progress_bar : bool
             Whether to display a progress bar.
+        device : str, optional
+            Device to run the computation on. If None, uses "cuda" if available, otherwise "cpu".
 
         Returns
         -------
@@ -66,13 +70,17 @@ class Solver:
             The result of the solve.
         """
         # Store original J matrix for plotting
+        if device is None:
+            if J.shape[0] > 20 and torch.cuda.is_available():
+                device = "cuda"
+            else:
+                device = "cpu"
         if isinstance(J, np.ndarray):
             self._J = J.copy()
-            device = "cuda" if torch.cuda.is_available() else "cpu"
             J_torch = torch.tensor(J, dtype=torch.float32, device=device)
         else:
             self._J = J.cpu().numpy()
-            J_torch = J
+            J_torch = J.to(dtype=torch.float32, device=device)
 
         # Apply defaults for None values (same as core.py)
         if xi is None:
@@ -131,13 +139,13 @@ class Solver:
         """
         return self.result.best_x
 
-    def get_best_cut(self) -> float:
+    def get_best_cut(self) -> int:
         """
         Get the current best cut value.
 
         Returns
         -------
-        float
+        int
             The best cut value.
         """
         if self.result.cut is None:
@@ -146,7 +154,7 @@ class Solver:
 
     def _get_energy_fn(self, dim0: int, dim1: int) -> Callable[[np.ndarray, np.ndarray], np.ndarray]:
         """
-        Create energy function for the specific method and dimensions.
+        Create 2D subspace energy function for the specific method and dimensions.
 
         Parameters
         ----------
@@ -205,7 +213,17 @@ class Solver:
             case _:
                 raise ValueError(f"Unknown method: {method}. Supported methods are 'aSB', 'bSB', 'dSB', 'sSB'.")
 
-    def plot_trajectory(self, ax: Axes | None = None, dim0: int = 0, dim1: int = 1, n_arrows: int = 100, show_energy: bool = True) -> Axes:
+    def plot_trajectory(
+        self,
+        ax: Axes | None = None,
+        dim0: int = 0,
+        dim1: int = 1,
+        xlim: tuple[float, float] = (-1, 1),
+        ylim: tuple[float, float] = (-1, 1),
+        show_bound: bool = True,
+        n_arrows: int = 100,
+        show_energy: bool = True,
+    ) -> Axes:
         """
         Plot the trajectory in 2D phase space.
 
@@ -215,6 +233,12 @@ class Solver:
             Matplotlib axes to plot on. If None, uses current axes.
         dim0, dim1 : int
             Dimensions to plot (default: 0, 1)
+        xlim : tuple[float, float], optional
+            x-axis limits (default: None, auto-determined)
+        ylim : tuple[float, float], optional
+            y-axis limits (default: None, auto-determined)
+        show_bound : bool
+            Whether to show the bounds of the plot (default: True)
         n_arrows : int
             Number of arrows to show direction (default: 100)
         show_energy : bool
@@ -237,11 +261,22 @@ class Solver:
             x_history=self.result.x,
             dim0=dim0,
             dim1=dim1,
+            xlim=xlim,
+            ylim=ylim,
+            show_bound=show_bound,
             energy_fn=energy_fn,
             n_arrows=n_arrows,
         )
 
-    def plot_time_hist(self, ax: Axes | None = None, n_slice: int = 2000, n_bins: int = 80, vmax: float = 0.05, xlim_factor: float = 5.0) -> Axes:
+    def plot_time_hist(
+        self,
+        ax: Axes | None = None,
+        n_slice: int = 2000,
+        n_bins: int = 201,
+        vmax: float = 0.05,
+        xlim: tuple[float, float | None] = (0, None),
+        ylim: tuple[float, float] = (-1, 1),
+    ) -> Axes:
         """
         Plot time histogram of the solution trajectory.
 
@@ -255,8 +290,10 @@ class Solver:
             Number of histogram bins (default: 80)
         vmax : float
             Maximum value for colormap (default: 0.05)
-        xlim_factor : float
-            Factor to multiply time range for x-axis limit (default: 5.0)
+        xlim : tuple[float, float | None], optional
+            x-axis limits (default: (0, None), auto-determined)
+        ylim : tuple[float, float], optional
+            y-axis limits (default: (-1, 1))
 
         Returns
         -------
@@ -275,10 +312,9 @@ class Solver:
             n_slice=n_slice,
             n_bins=n_bins,
             vmax=vmax,
+            xlim=xlim,
+            ylim=ylim,
         )
-
-        ax.set_ylabel("x")
-        ax.set_xlim(0, len(self.result.x) * eta * xlim_factor)
 
         return ax
 
@@ -288,8 +324,8 @@ class Solver:
         title: str | None = None,
         color: str = "purple",
         alpha: float = 0.9,
-        t_range: slice | None = None,
-        dim_range: slice | range | None = None,
+        t_range: KeyType | None = None,
+        dim_range: KeyType | None = None,
         ylabel: bool = True,
     ) -> list[Axes]:
         """
@@ -305,9 +341,9 @@ class Solver:
             Color for the plots (default: "purple")
         alpha : float
             Alpha transparency (default: 0.9)
-        t_range : slice, optional
+        t_range : KeyType, optional
             Time range to plot
-        dim_range : slice or range, optional
+        dim_range : KeyType, optional
             Dimension range to plot (default: first 20 dimensions)
         ylabel : bool
             Whether to add y-axis labels (default: True)
@@ -369,7 +405,18 @@ class Solver:
         float
             Estimated convergence time
         """
-        return len(self.result.x) * self.params["eta"]
+        return self.get_n_steps() * self.params["eta"]
+
+    def get_n_steps(self) -> int:
+        """
+        Get the number of steps taken in the last solve.
+
+        Returns
+        -------
+        int
+            Number of steps
+        """
+        return len(self.result.x)
 
     def get_final_energy(self) -> float:
         """

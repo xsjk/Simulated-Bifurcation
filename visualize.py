@@ -1,11 +1,42 @@
-from typing import Callable
+from types import EllipsisType
+from typing import Any, Callable, SupportsIndex
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import colormaps
 from matplotlib.axes import Axes
-from matplotlib.colors import Colormap
+from matplotlib.colors import Colormap, LinearSegmentedColormap
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
+from numpy import bool_, integer
+from numpy.typing import NDArray
+
+type KeyType = slice | EllipsisType | SupportsIndex | NDArray[integer[Any]] | NDArray[bool_]
+type BoundsType = tuple[float, float] | tuple[float, None] | tuple[None, float] | None
+
+
+def generate_alpha(num_colors: int = 9) -> np.ndarray:
+    return np.tanh(np.linspace(0, 2, num_colors))
+
+
+def transparentise(cmap: str | Colormap, alphas: np.ndarray | None = None) -> Colormap:
+    if isinstance(cmap, str):
+        cmap = colormaps[cmap]
+
+    alphas = alphas if alphas is not None else generate_alpha()
+    num_colors = len(alphas)
+    colors = cmap(np.linspace(0, 1, num_colors))
+    if colors.shape[1] == 3:
+        colors = np.hstack((colors, alphas))
+    elif colors.shape[1] == 4:
+        colors[:, 3] = alphas
+    else:
+        raise ValueError(f"Unsupported colormap format: {colors.shape[1]} channels")
+
+    # Adjust RGB channels based on alpha
+    colors[1:, :3] -= 1 - colors[1:, [3]]
+    colors[1:, :3] /= colors[1:, [3]]
+    colors = np.clip(colors, 0, 1)
+    return LinearSegmentedColormap.from_list(f"{cmap.name}_alpha", colors)
 
 
 def plot_history(
@@ -19,8 +50,8 @@ def plot_history(
     color: str = "purple",
     alpha: float = 0.9,
     axes: list[Axes] | None = None,
-    t_range: slice | None = None,
-    dim_range: slice | range | None = None,
+    t_range: KeyType | None = None,
+    dim_range: KeyType | None = None,
     ylabel: bool = True,
 ) -> list[Axes]:
     T, _N = x_history.shape
@@ -45,7 +76,7 @@ def plot_history(
 
     # Now axes is guaranteed to be not None
     plot_V_H(axes, t, V_history, H_history, title, color)
-    plot_xyz_data(axes, t, x_history, y_history, g_history, title, color, alpha, dim_range)
+    plot_xyg(axes, t, x_history, y_history, g_history, title, color, alpha, dim_range)
 
     if ylabel:
         set_ylabels(axes)
@@ -60,7 +91,7 @@ def plot_V_H(axes: list[Axes], t: np.ndarray, V_history: np.ndarray, H_history: 
     axes[0].legend(loc="upper right")
 
 
-def plot_xyz_data(
+def plot_xyg(
     axes: list[Axes],
     t: np.ndarray,
     x_history: np.ndarray,
@@ -69,18 +100,18 @@ def plot_xyz_data(
     title: str,
     color: str,
     alpha: float,
-    dim_range: slice | range | None,
+    dim_range: KeyType,
 ) -> None:
     # plot x, y, g
     if isinstance(dim_range, int):
         # No specific behavior implemented for integer dim_range.
         # Consider adding functionality if needed or leave as is intentionally.
         alpha *= 1  # Placeholder for potential future implementation
-    elif isinstance(dim_range, slice):
-        if dim_range.stop is not None and dim_range.start is not None:
-            alpha *= (dim_range.step or 1) / (dim_range.stop - dim_range.start)
-    elif dim_range is not None:  # range type
-        alpha *= 5 / len(dim_range)
+    else:
+        alpha *= 2 / x_history[:, dim_range].shape[1]
+
+    if alpha > 1:
+        alpha = 1
 
     # plot x[0], x[1]
     axes[1].plot(t, x_history[:, dim_range], color=color, alpha=alpha)
@@ -216,15 +247,23 @@ def plot_time_hist(
     n_slice: int = 20,
     n_bins: int = 40,
     vmax: float = 0.1,
+    xlim: tuple[float, float | None] = (0, None),
     ylim: tuple[float, float] = (-1, 1),
     ax: Axes | None = None,
     colorbar: bool = True,
+    cmap: str | Colormap | None = None,
 ) -> Axes:
     T, _N = history.shape
     dt = T * eta / n_slice
 
     if ax is None:
         _fig, ax = plt.subplots(figsize=(8, 4))
+
+    if cmap is None:
+        # Make it more visually appealing on any background
+        cmap = transparentise("Blues")
+    elif isinstance(cmap, str):
+        cmap = colormaps[cmap]
 
     bins = np.linspace(*ylim, n_bins)
     history = np.clip(history, *ylim)
@@ -246,7 +285,7 @@ def plot_time_hist(
         aspect="auto",
         origin="lower",
         extent=(0, dt * n_slice, float(bins[0]), float(bins[-1])),
-        cmap="Blues",
+        cmap=cmap,
         vmin=0,
         vmax=vmax,
         interpolation="nearest",
@@ -259,6 +298,8 @@ def plot_time_hist(
 
     ax.set_xlabel("Time")
     ax.grid(False)
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
 
     return ax
 
@@ -268,10 +309,11 @@ def plot_history_compare(
     histories: dict[str, np.ndarray],
     histories_std: dict[str, np.ndarray] | None = None,
     ylabel: str = "Value",
+    colors: dict[str, str] = {},
     cmap: str | Colormap = "Darks",
     alpha: float = 0.8,
-    xlim: tuple[float, float] | None = None,
-    ylim: tuple[float, float] | None = None,
+    xlim: BoundsType = None,
+    ylim: BoundsType = None,
     show_max: bool = False,
     max_text_offset: dict[str, float] = {},
     inset_zoom: tuple[tuple[float, float], tuple[float, float]] | None = None,  # ((x1,x2), (y1,y2))
@@ -287,7 +329,7 @@ def plot_history_compare(
 
     for i, (label, history) in enumerate(histories.items()):
         t = np.arange(history.shape[0], dtype=float) * eta
-        color = cmap(i / len(histories))
+        color = colors.get(label, cmap(i / len(histories)))
         ax.plot(t, history, label=label, color=color, alpha=alpha)
         if histories_std is not None:
             ax.fill_between(
@@ -300,8 +342,10 @@ def plot_history_compare(
 
     ax.legend()
     ax.set_xscale("log")
-    ax.set_xlim(xlim)
-    ax.set_ylim(ylim)
+    if xlim:
+        ax.set_xlim(*xlim)
+    if ylim:
+        ax.set_ylim(*ylim)
     ax.grid(alpha=0.5)
     ax.set_xlabel("Time")
     ax.set_ylabel(ylabel)
@@ -324,7 +368,7 @@ def plot_history_compare(
 
         for i, (label, history) in enumerate(histories.items()):
             t = np.arange(history.shape[0], dtype=float) * eta
-            color = cmap(i / len(histories))
+            color = colors.get(label, cmap(i / len(histories)))
             axins.plot(t, history, color=color, alpha=alpha)
             if histories_std is not None:
                 axins.fill_between(

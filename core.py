@@ -257,7 +257,7 @@ def run(
     xi: float | None = None,
     eta: float = 2**-3,
     max_steps: int | None = None,
-    seed: int = 42,
+    seed: int = 0,
     progress_bar: bool = False,
 ) -> SBHistoryTensor:
     """
@@ -339,7 +339,7 @@ def run_numpy(
     xi: float | None = None,
     eta: float = 2**-3,
     max_steps: int | None = None,
-    seed: int = 42,
+    seed: int = 0,
     progress_bar: bool = False,
 ) -> SBHistoryArray:
     return run(
