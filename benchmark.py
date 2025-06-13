@@ -171,7 +171,7 @@ class Benchmark:
         cmap: str | Colormap | None = None,
         alpha: float = 0.6,
         xlim: BoundsType = (0.1, None),
-        inset_zoom: float = 0.7,
+        inset_zoom: float = 0.8,
         show_max: bool = True,
         max_offset: dict[str, float] = {},
         best_cut: int | None = None,
@@ -188,10 +188,15 @@ class Benchmark:
         tmax = max(len(h) for h in cuts.values()) * eta
         tmin = tmax * inset_zoom
         fig, ax = plt.subplots(figsize=figsize)
+
+        # Determine y-axis limits for inset
         cut_vals = [h.max() for h in cuts.values()]
         cut_min, cut_max = min(cut_vals), max(cut_vals)
+        if best_cut is not None:
+            cut_max = best_cut
         cut_rng = cut_max - cut_min
-        inset_y = (cut_min - cut_rng * 0.1, cut_max + cut_rng * 0.1)
+        inset_y = (cut_min - cut_rng * 0.2, cut_max + cut_rng * 0.2)
+
         ax, axins = visualize.plot_history_compare(
             eta=eta,
             ylabel="Cut Value",

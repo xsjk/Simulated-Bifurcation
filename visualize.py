@@ -79,7 +79,10 @@ def plot_history(
     plot_xyg(axes, t, x_history, y_history, g_history, title, color, alpha, dim_range)
 
     if ylabel:
-        set_ylabels(axes)
+        axes[0].set_ylabel("Energy")
+        axes[1].set_ylabel("Position")
+        axes[2].set_ylabel("Velocity")
+        axes[3].set_ylabel("Acceleration")
 
     return axes
 
@@ -128,13 +131,6 @@ def plot_xyg(
     axes[3].grid(alpha=0.5)
     axes[3].set_xlabel("Time (s)")
     axes[3].legend([rf"$\mathbf{{g}}_\text{{{title}}}$"], loc="upper right")
-
-
-def set_ylabels(axes: list[Axes]) -> None:
-    axes[0].set_ylabel("Energy")
-    axes[1].set_ylabel("x")
-    axes[2].set_ylabel("y")
-    axes[3].set_ylabel("g")
 
 
 def plot_trajectory(
