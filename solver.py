@@ -12,7 +12,7 @@ from matplotlib.axes import Axes
 
 import visualize
 from core import MethodType, SBHistoryArray, run
-from visualize import KeyType
+from visualize import KeyType, ColorType
 
 
 class Solver:
@@ -322,7 +322,7 @@ class Solver:
         self,
         axes: list[Axes] | None = None,
         title: str | None = None,
-        color: str = "purple",
+        color: ColorType = "purple",
         alpha: float = 0.9,
         t_range: KeyType | None = None,
         dim_range: KeyType | None = None,

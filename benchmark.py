@@ -1,4 +1,3 @@
-from tkinter import NO
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -15,18 +14,11 @@ class Benchmark:
     def __init__(
         self,
         methods: list[MethodType],
-        colors: list[str] = [
-            "#8a279a",
-            "#2a5a8a",
-            "#8a5a2a",
-            "#5a8a2a",
-        ],
     ):
         self.methods = methods
         self.solvers: dict[str, Solver] = {}
         self.J: np.ndarray | None = None
         self.params: dict[str, float | int] = {}
-        self.colors = colors
 
     def run(
         self,
@@ -146,7 +138,7 @@ class Benchmark:
             s.plot_history(
                 axes=axes[:, i],
                 title=m,
-                color=self.colors[i % len(self.colors)],
+                color=visualize.default_cmap(i / len(self.methods)),
                 t_range=t_range,
                 dim_range=dim_range,
                 ylabel=(i == 0),
@@ -168,7 +160,7 @@ class Benchmark:
     def plot_cut(
         self,
         figsize: tuple[int, int] = (6, 5),
-        cmap: str | Colormap | None = None,
+        cmap: str | Colormap = visualize.default_cmap,
         alpha: float = 0.6,
         xlim: BoundsType = (0.1, None),
         inset_zoom: float = 0.8,
@@ -179,8 +171,6 @@ class Benchmark:
     ) -> Figure:
         if not self.solvers:
             raise ValueError("No algorithms have been run yet. Call run() first.")
-        if cmap is None:
-            cmap = LinearSegmentedColormap.from_list("sb_cmap", self.colors)
         cuts = {}
         eta = self.params["eta"]
         for m, s in self.solvers.items():
@@ -210,8 +200,10 @@ class Benchmark:
             ax=ax,
         )
         if best_cut is not None and axins is not None:
-            axins.axhline(best_cut, label="Best cut", color="black", linestyle="-", alpha=0.8, linewidth=1)
-            axins.text(tmax, best_cut, f" Best cut={best_cut}", color="black", fontsize=10, ha="left", va="center", alpha=0.8)
+            bgcolor = axins.get_facecolor()
+            color = np.array([1, 1, 1, 1]) - bgcolor
+            axins.axhline(best_cut, label="Best cut", color=color, linestyle="-", alpha=0.8, linewidth=1)
+            axins.text(tmax, best_cut, f" Best cut={best_cut}", color=color, fontsize=10, ha="left", va="center", alpha=0.8)
         plt.title("SB Algorithms Cut Value History Comparison")
         if save:
             plt.savefig(save, dpi=300, bbox_inches="tight")

@@ -5,13 +5,19 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import colormaps
 from matplotlib.axes import Axes
-from matplotlib.colors import Colormap, LinearSegmentedColormap
+from matplotlib.colors import Colormap, LinearSegmentedColormap, ListedColormap
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 from numpy import bool_, integer
 from numpy.typing import NDArray
 
 type KeyType = slice | EllipsisType | SupportsIndex | NDArray[integer[Any]] | NDArray[bool_]
 type BoundsType = tuple[float, float] | tuple[float, None] | tuple[None, float] | None
+
+
+default_cmap = LinearSegmentedColormap.from_list("custom_cmap", ["#3838b0", "#aa35b2", "#b7333b"])
+
+
+type ColorType = str | tuple[float, float, float] | tuple[float, float, float, float]
 
 
 def generate_alpha(num_colors: int = 9) -> np.ndarray:
@@ -47,7 +53,7 @@ def plot_history(
     g_history: np.ndarray,
     V_history: np.ndarray,
     H_history: np.ndarray,
-    color: str = "purple",
+    color: ColorType = "purple",
     alpha: float = 0.9,
     axes: list[Axes] | None = None,
     t_range: KeyType | None = None,
@@ -87,7 +93,14 @@ def plot_history(
     return axes
 
 
-def plot_V_H(axes: list[Axes], t: np.ndarray, V_history: np.ndarray, H_history: np.ndarray, title: str, color: str) -> None:
+def plot_V_H(
+    axes: list[Axes],
+    t: np.ndarray,
+    V_history: np.ndarray,
+    H_history: np.ndarray,
+    title: str,
+    color: ColorType,
+) -> None:
     axes[0].plot(t, V_history, label=rf"$V_\text{{{title}}}$", color=color, alpha=0.5)
     axes[0].plot(t, H_history, label=rf"$H_\text{{{title}}}$", color="black", alpha=0.5)
     axes[0].grid(alpha=0.5)
@@ -101,7 +114,7 @@ def plot_xyg(
     y_history: np.ndarray,
     g_history: np.ndarray,
     title: str,
-    color: str,
+    color: ColorType,
     alpha: float,
     dim_range: KeyType,
 ) -> None:
@@ -306,7 +319,7 @@ def plot_history_compare(
     histories_std: dict[str, np.ndarray] | None = None,
     ylabel: str = "Value",
     colors: dict[str, str] = {},
-    cmap: str | Colormap = "Darks",
+    cmap: str | Colormap = default_cmap,
     alpha: float = 0.8,
     xlim: BoundsType = None,
     ylim: BoundsType = None,

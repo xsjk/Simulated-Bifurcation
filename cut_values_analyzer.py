@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
-from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+from matplotlib.colors import Colormap, LinearSegmentedColormap, ListedColormap
 from matplotlib.figure import Figure
 
 import visualize
@@ -26,16 +26,14 @@ class CutValuesAnalyzer:
     generated from hyperparameter testing experiments.
     """
 
-    def __init__(self, data_path: str):
+    def __init__(self, data_path: str, methods: list[str] = ["bSB", "dSB", "sSB"]):
         """
         Initialize the CutValuesAnalyzer.
 
         Args:
             data_path: path to the cut values pickle file
         """
-        self.methods = ["bSB", "dSB", "sSB"]
-        self.colors = ["#3838b0", "#aa35b2", "#b7333b"]
-        self.cmap = LinearSegmentedColormap.from_list("custom_cmap", self.colors)
+        self.methods = methods
 
         self.num_seeds = 128  # Default number of seeds
 
@@ -48,6 +46,16 @@ class CutValuesAnalyzer:
 
         self.cut_values_mean_df = self.cut_values_df.map(np.mean)
         self.cut_values_std_df = self.cut_values_df.map(np.std)
+
+    @property
+    def num_methods(self) -> int:
+        """
+        Get the number of methods used in the analysis.
+
+        Returns:
+            int: Number of methods
+        """
+        return len(self.methods)
 
     def get_cut_histories(self, beta: float, eta: float) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
         """
@@ -117,7 +125,6 @@ class CutValuesAnalyzer:
             eta=eta,
             histories=cut_histories_means,
             histories_std=cut_histories_std,
-            cmap=self.cmap,
             alpha=0.6,
             xlim=(0.1, None),
             inset_zoom=((tmin, tmax), inset_y),
@@ -142,7 +149,12 @@ class CutValuesAnalyzer:
 
         return ax, axin
 
-    def plot_hyperparameter_heatmap(self, save_path: str | None = None, figsize: tuple[int, int] = (13, 9)) -> Figure:
+    def plot_hyperparameter_heatmap(
+        self,
+        save_path: str | None = None,
+        figsize: tuple[int, int] = (13, 9),
+        cmap: Colormap = visualize.default_cmap,
+    ) -> Figure:
         """
         Plot comprehensive hyperparameter heatmap showing method comparison.
 
@@ -162,13 +174,6 @@ class CutValuesAnalyzer:
         vmin = self.cut_values_mean_df.values.min()
         vmax = self.cut_values_mean_df.values.max()
 
-        # Define colormaps for each method
-        cmaps = [
-            LinearSegmentedColormap.from_list("bSB", ["#efefff", "#bbbbf2"]),
-            LinearSegmentedColormap.from_list("dSB", ["#fdeaff", "#e0a6e4"]),
-            LinearSegmentedColormap.from_list("sSB", ["#ffe5e6", "#ffb6ba"]),
-        ]
-
         # Get parameter values
         midx = self.cut_values_df.columns
         beta_values = midx.get_level_values("beta").unique()
@@ -178,6 +183,23 @@ class CutValuesAnalyzer:
         fig = plt.figure(figsize=figsize)
         gs = fig.add_gridspec(3, 2, width_ratios=[3, 1.2])
 
+        bgcolor = fig.get_facecolor()
+        textcolor = "black" if np.array(bgcolor).mean() > 0.5 else "white"
+
+        if isinstance(cmap, LinearSegmentedColormap):
+            colors = cmap(np.arange(self.num_methods) / self.num_methods)
+            colors[:, 3] = 0.6
+            cmap = ListedColormap(colors)
+        assert isinstance(cmap, ListedColormap)
+
+        cmaps = [
+            LinearSegmentedColormap.from_list(
+                f"cm_{method}",
+                [bgcolor, cmap(i / self.num_methods)],
+            )
+            for i, method in enumerate(self.methods)
+        ]
+
         # Create the best method plot on the left (spans all rows)
         ax_best = fig.add_subplot(gs[:, 0])
 
@@ -185,10 +207,10 @@ class CutValuesAnalyzer:
         axes = [fig.add_subplot(gs[i, 1]) for i in range(3)]
 
         # Plot heatmaps for each method on the right
-        for i, (ax, method, cmap) in enumerate(zip(axes[::-1], self.methods, cmaps)):
+        for i, (ax, method, cm) in enumerate(zip(axes[::-1], self.methods, cmaps)):
             im = ax.imshow(
                 self.cut_values_mean_df.loc[method].unstack(level="eta"),
-                cmap=cmap,
+                cmap=cm,
                 aspect="auto",
                 origin="lower",
                 vmin=vmin,
@@ -218,14 +240,14 @@ class CutValuesAnalyzer:
                         s=f"{mean_value_matrix.iat[ii, jj]:.0f}",
                         ha="center",
                         va="center",
-                        color="black",
+                        color=textcolor,
                         fontsize=9,
                     )
 
         # Plot the best method heatmap on the left
         im_best = ax_best.imshow(
             best_method,
-            cmap=ListedColormap(["#bbbbf2", "#e0a6e4", "#ffb6ba"]),
+            cmap=cmap,
             aspect="equal",
             origin="lower",
         )
@@ -241,13 +263,21 @@ class CutValuesAnalyzer:
             for jj in range(len(eta_values)):
                 best_idx = best_method[ii, jj]
                 best_value = self.cut_values_mean_df.iloc[best_idx].unstack(level="eta").iloc[ii, jj]
-                ax_best.text(jj, ii, f"{best_value:.0f}", ha="center", va="center", color="black", fontsize=12)
+                ax_best.text(
+                    jj,
+                    ii,
+                    f"{best_value:.0f}",
+                    ha="center",
+                    va="center",
+                    color=textcolor,
+                    fontsize=12,
+                )
 
         # Add colorbar with method names for the best method plot
         cbar_best = fig.colorbar(
             im_best,
             ax=ax_best,
-            ticks=(np.arange(len(self.methods)) + 0.5) * (1 - 1 / len(self.methods)),
+            ticks=(np.arange(self.num_methods) + 0.5) * (1 - 1 / self.num_methods),
         )
         cbar_best.set_ticklabels(self.methods, fontsize=14)
 
