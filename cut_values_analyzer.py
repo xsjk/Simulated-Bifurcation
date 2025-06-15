@@ -16,6 +16,7 @@ from matplotlib.colors import Colormap, LinearSegmentedColormap, ListedColormap
 from matplotlib.figure import Figure
 
 import visualize
+from visualize import to_latex
 
 
 class CutValuesAnalyzer:
@@ -136,7 +137,7 @@ class CutValuesAnalyzer:
         ax.set_ylabel("Cut Value", fontsize=13)
         if axin is not None:
             axin.set_ylabel("")
-        ax.set_title(rf"Average Cut Value History ($\beta=2^{{{np.log2(beta):.0f}}}$, $\eta=2^{{{np.log2(eta):.0f}}}$)", fontsize=16)
+        ax.set_title(rf"Average Cut Value History ($\beta={to_latex(beta)}$, $\eta={to_latex(eta)}$)", fontsize=16)
 
         # Add best cut reference line if provided
         if best_cut is not None and axin is not None:
@@ -220,12 +221,12 @@ class CutValuesAnalyzer:
             # Set ticks and labels
             if i == 0:  # Only show x-axis labels on bottom plot
                 ax.set_xticks(range(len(eta_values)))
-                ax.set_xticklabels([f"$2^{{{int(np.log2(eta))}}}$" for eta in eta_values])
+                ax.set_xticklabels([f"${to_latex(eta)}$" for eta in eta_values])
             else:
                 ax.set_xticks([])
 
             ax.set_yticks(range(len(beta_values)))
-            ax.set_yticklabels([f"$2^{{{int(np.log2(beta))}}}$" for beta in beta_values])
+            ax.set_yticklabels([f"${to_latex(beta)}$" for beta in beta_values])
 
             # Add colorbar
             fig.colorbar(im, ax=ax)
@@ -255,8 +256,8 @@ class CutValuesAnalyzer:
         ax_best.set_title("Best Performing Method", fontsize=18)
         ax_best.set_xticks(range(len(eta_values)))
         ax_best.set_yticks(range(len(beta_values)))
-        ax_best.set_xticklabels([f"$2^{{{int(np.log2(eta))}}}$" for eta in eta_values])
-        ax_best.set_yticklabels([f"$2^{{{int(np.log2(beta))}}}$" for beta in beta_values])
+        ax_best.set_xticklabels([f"${to_latex(eta)}$" for eta in eta_values])
+        ax_best.set_yticklabels([f"${to_latex(beta)}$" for beta in beta_values])
 
         # Add value annotations for best method plot
         for ii in range(len(beta_values)):
@@ -351,7 +352,7 @@ def create_standard_plots(
     beta: float,
     eta: float,
     best_cut: int,
-    output_dir: str = "figures",
+    save_prefix: str | None,
 ) -> None:
     """
     Create standard analysis plots for cut values data.
@@ -363,7 +364,6 @@ def create_standard_plots(
         output_dir: Directory to save output figures
     """
     # Create output directory if it doesn't exist
-    Path(output_dir).mkdir(exist_ok=True)
 
     # Load and analyze data
     analyzer = CutValuesAnalyzer(data_path)
@@ -373,11 +373,11 @@ def create_standard_plots(
         beta=beta,
         eta=eta,
         best_cut=best_cut,  # Known best cut for the K2000 problem
-        save_path=f"{output_dir}/average_cut_history.png",
+        save_path=f"{save_prefix}average_cut_history.png" if save_prefix else None,
     )
 
     # Create hyperparameter heatmap
-    analyzer.plot_hyperparameter_heatmap(save_path=f"{output_dir}/combined_heatmap.png")
+    analyzer.plot_hyperparameter_heatmap(save_path=f"{save_prefix}hyperparameter_heatmap.png" if save_prefix else None)
 
     # Print performance summary
     analyzer.print_method_performance(beta=beta, eta=eta)
@@ -398,6 +398,7 @@ if __name__ == "__main__":
             beta=2**-11,
             eta=2**-1,
             best_cut=33337,
+            save_prefix="figures/",
         )
     else:
         print(f"Data file {data_file} not found. Please check the path.")

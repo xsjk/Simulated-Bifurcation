@@ -1,13 +1,13 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.colors import Colormap, LinearSegmentedColormap
+from matplotlib.colors import Colormap
 from matplotlib.figure import Figure
 
 import visualize
 from core import MethodType
 from solver import Solver
-from visualize import BoundsType, KeyType
+from visualize import BoundsType, KeyType, to_latex
 
 
 class Benchmark:
@@ -115,7 +115,8 @@ class Benchmark:
             axes[i, 1].set_xlim(0, len(s.result.x) * eta)
             axes[i, 1].set_ylim(*interval)
             axes[i, 1].set_title(f"{m} Time Distribution")
-        plt.suptitle(f"SB Algorithms Trajectory & Time Distribution Comparison (β={beta}, η={eta})", fontsize=16)
+
+        plt.suptitle(rf"SB Algorithms Trajectory & Time Distribution Comparison ($\beta={to_latex(beta)}$, $\eta={to_latex(eta)}$)", fontsize=16)
         plt.tight_layout()
         if save:
             plt.savefig(save, dpi=300, bbox_inches="tight")
@@ -218,11 +219,11 @@ class Benchmark:
             raise ValueError("No algorithms have been run yet. Call run() first.")
         figs = {}
         print("📊 Generating trajectory and time distribution comparison...")
-        figs["traj"] = self.plot_traj(save=f"{save_prefix}_traj_time.png" if save_prefix else None)
+        figs["traj"] = self.plot_traj(save=f"{save_prefix}traj_time.png" if save_prefix else None)
         print("📊 Generating history variables comparison...")
-        figs["history"] = self.plot_history(save=f"{save_prefix}_history.png" if save_prefix else None)
+        figs["history"] = self.plot_history(save=f"{save_prefix}history.png" if save_prefix else None)
         print("📊 Generating cut value history comparison...")
-        figs["cut"] = self.plot_cut(save=f"{save_prefix}_cut.png" if save_prefix else None, best_cut=best_cut)
+        figs["cut"] = self.plot_cut(save=f"{save_prefix}cut.png" if save_prefix else None, best_cut=best_cut)
         if save_prefix:
             print(f"✅ All plots generated and saved with prefix '{save_prefix}'")
         return figs

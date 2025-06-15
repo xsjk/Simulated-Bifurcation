@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import colormaps
 from matplotlib.axes import Axes
-from matplotlib.colors import Colormap, LinearSegmentedColormap, ListedColormap
+from matplotlib.colors import Colormap, LinearSegmentedColormap
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 from numpy import bool_, integer
 from numpy.typing import NDArray
@@ -18,6 +18,13 @@ default_cmap = LinearSegmentedColormap.from_list("custom_cmap", ["#3838b0", "#aa
 
 
 type ColorType = str | tuple[float, float, float] | tuple[float, float, float, float]
+
+
+def to_latex(v: float) -> str:
+    n = np.log2(v)
+    if np.isclose(n, np.round(n)):
+        return f"2^{{{int(n)}}}"
+    return f"{v:.2e}"
 
 
 def generate_alpha(num_colors: int = 9) -> np.ndarray:

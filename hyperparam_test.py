@@ -11,9 +11,8 @@ from core import MethodType, SBHistoryTensor
 
 methods: list[MethodType] = ["bSB", "dSB", "sSB"]
 seeds = list(range(128))
-
-betas = 2.0 ** np.arange(-8, -7, 1)
-etas = 2.0 ** np.arange(-6, -5, 1)
+betas = 2.0 ** np.arange(-11, -6, 1)
+etas = 2.0 ** np.arange(-4, 1, 1)
 
 
 def run_method(queue, J, device, seeds, betas, etas):
