@@ -366,7 +366,11 @@ def create_standard_plots(
     # Create output directory if it doesn't exist
 
     # Load and analyze data
-    analyzer = CutValuesAnalyzer(data_path)
+    try:
+        analyzer = CutValuesAnalyzer(data_path)
+    except FileNotFoundError:
+        print(f"Data file {data_path} not found. Please run the hyperparameter testing first.")
+        return
 
     # Create history plot
     analyzer.plot_average_cut_history(
