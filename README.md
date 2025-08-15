@@ -188,15 +188,74 @@ The algorithms show different performance characteristics. The demo notebook pro
 
 #### Big Time Step Configuration
 
-![Large Scale - Small Time Step - Trajectory](figures/benchmark_2000x2000_eta_2^-1_beta_2^-11_traj_time.png)
+![Large Scale - Small Time Step - Trajectory](figures/benchmark_2000x2000_eta_2^-1_beta_2^-10_traj_time.png)
 
-![Large Scale - Small Time Step - History](figures/benchmark_2000x2000_eta_2^-1_beta_2^-11_history.png)
+![Large Scale - Small Time Step - History](figures/benchmark_2000x2000_eta_2^-1_beta_2^-10_history.png)
 
-![Large Scale - Small Time Step - Cut](figures/benchmark_2000x2000_eta_2^-1_beta_2^-11_cut.png)
+![Large Scale - Small Time Step - Cut](figures/benchmark_2000x2000_eta_2^-1_beta_2^-10_cut.png)
 
-### Hyperparameter Analysis
 
-![Hyperparameter Heatmap](figures/hyperparameter_heatmap.png)
+## Hyperparameter Exploration
+
+To systematically explore the hyperparameter space and characterize the performance of different SB algorithms, you can use the provided hyperparameter testing tools.
+
+### Running Hyperparameter Tests
+
+The `hyperparam_test.py` script performs comprehensive testing across multiple combinations of $\beta$ and $\eta$ parameters:
+
+```bash
+# Run hyperparameter exploration
+python hyperparam_test.py
+```
+
+- Runs all SB variants: **aSB**, **bSB**, **dSB**, **sSB**, and **sSB_sgn**.
+- Sweeps parameters with
+  $\beta = 2^{-k_\beta},\eta = 2^{-k_\eta}$ subject to $k_\beta + k_\eta \in [5,\,15], k_\beta \ge 5, k_\eta \ge 0, k_\eta, k_\beta \in \mathbb{Z}.$
+- Executes multiple random seeds (default: 128) for robust statistics.
+- Leverages GPU acceleration and multiprocessing to speed up experiments.
+- Stores the results to `max_cut_values_boundary_init_k_xi_6.pkl`.
+
+**Note**: The hyperparameter exploration can be computationally intensive and may take several hours to complete, especially for large problem instances.
+
+### Visualizing Results
+
+After the hyperparameter test completes, you can generate comprehensive visualization plots:
+
+```python
+import hyperparam_test
+
+# Plot the hyperparameter characterization results
+hyperparam_test.plot_result(
+    result_path="max_cut_values_boundary_init_k_xi_6.pkl",
+    save_prefix="figures/hyperparameter_characterization"
+)
+```
+
+This will generate a detailed characterization plot showing:
+- **Main Plot**: Median cut error vs. average number of steps across the parameter space
+- **Inset Plots**: Performance comparison of each method with median cut value vs. average number of steps
+- **Parameter Space Plot**: Visual representation of the parameter space and the optimal boundaries of $(\eta, \beta)$ configurations
+
+![Hyperparameter Characterization](figures/hyperparameter_characterization.png)
+
+
+### Customizing the Analysis
+
+You can modify the hyperparameter exploration by editing the parameters in `hyperparam_test.py`:
+
+```python
+# Adjust parameter ranges
+k_beta_eta_max = 15 # Maximum sum of β and η exponents
+k_beta_min = 5      # Minimum β exponent
+k_eta_min = 0       # Minimum η exponent
+k_xi = 6            # Fixed ξ exponent
+
+# Change initialization strategy
+init: InitType = "boundary"  # or "center", "random"
+
+# Modify number of random seeds
+seeds = list(range(128))  # Increase for better statistics
+```
 
 ## References
 
