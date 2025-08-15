@@ -11,7 +11,7 @@ import torch
 from matplotlib.axes import Axes
 
 import visualize
-from core import MethodType, SBHistoryArray, run
+from core import MethodType, StateArray, run
 from visualize import KeyType, ColorType
 
 
@@ -24,7 +24,7 @@ class Solver:
 
     def __init__(self):
         self.params: dict[str, Any] = {}
-        self._result: SBHistoryArray | None = None
+        self._result: StateArray | None = None
         self._J: np.ndarray | None = None
 
     def solve(
@@ -39,7 +39,7 @@ class Solver:
         seed: int = 42,
         progress_bar: bool = False,
         device: str | None = None,
-    ) -> SBHistoryArray:
+    ) -> StateArray:
         """
         Run the Simulated Bifurcation algorithm to solve the Ising model.
 
@@ -115,7 +115,7 @@ class Solver:
         return result
 
     @property
-    def result(self) -> SBHistoryArray:
+    def result(self) -> StateArray:
         """
         Get the result of the last solve.
 
@@ -206,7 +206,7 @@ class Solver:
         match method:
             case "aSB":
                 return energy_fn_aSB
-            case "bSB" | "sSB" | "sSB_clip":
+            case "bSB" | "sSB" | "sSB_sgn":
                 return energy_fn_bSB
             case "dSB":
                 return energy_fn_dSB

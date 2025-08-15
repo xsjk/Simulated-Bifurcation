@@ -1,23 +1,26 @@
 from types import EllipsisType
-from typing import Any, Callable, SupportsIndex
+from typing import Any, Callable, Literal, SupportsIndex
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from matplotlib import colormaps
 from matplotlib.axes import Axes
 from matplotlib.colors import Colormap, LinearSegmentedColormap
+from matplotlib.figure import Figure
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 from numpy import bool_, integer
 from numpy.typing import NDArray
 
-type KeyType = slice | EllipsisType | SupportsIndex | NDArray[integer[Any]] | NDArray[bool_]
-type BoundsType = tuple[float, float] | tuple[float, None] | tuple[None, float] | None
+from core import MethodType
+from hyperparam_test import HyperparamResultType
 
+type KeyType = slice | EllipsisType | SupportsIndex | NDArray[integer[Any]] | NDArray[bool_]
+type BoundsType = tuple[float, float] | tuple[float, None] | tuple[None, float]
+type ColorType = str | tuple[float, float, float] | tuple[float, float, float, float]
+type TicksType = tuple[list[float], list[str]]
 
 default_cmap = LinearSegmentedColormap.from_list("custom_cmap", ["#3838b0", "#aa35b2", "#b7333b"])
-
-
-type ColorType = str | tuple[float, float, float] | tuple[float, float, float, float]
 
 
 def to_latex(v: float) -> str:
@@ -221,7 +224,7 @@ def plot_trajectory(
     ax.set_ylabel(f"$x_{{{dim1}}}$")
     ax.grid(alpha=0.3)
     ax.set_aspect("equal")
-    ax.legend()
+    ax.legend(loc="upper right", fontsize=10, framealpha=0.5)
     ax.set_xlim(xlim)
     ax.set_ylim(ylim)
     plt.colorbar(points, label="Time", ax=ax)
@@ -328,8 +331,8 @@ def plot_history_compare(
     colors: dict[str, str] = {},
     cmap: str | Colormap = default_cmap,
     alpha: float = 0.8,
-    xlim: BoundsType = None,
-    ylim: BoundsType = None,
+    xlim: BoundsType | None = None,
+    ylim: BoundsType | None = None,
     show_max: bool = False,
     max_text_offset: dict[str, float] = {},
     inset_zoom: tuple[tuple[float, float], tuple[float, float]] | None = None,  # ((x1,x2), (y1,y2))
@@ -423,3 +426,220 @@ def plot_history_compare(
         axins.grid()
 
     return ax, axins if inset_zoom is not None else None
+
+
+def plot_hyperparam_characterization(
+    max_cut_results: HyperparamResultType,
+    methods: list[MethodType] | None = None,
+    figsize: tuple[int, int] = (11, 7),
+    best_cut: int = 33337,
+    annotation_points: list[tuple[MethodType, tuple[float, float], tuple[int, int]]] = [],
+    linewidth_fn: Callable[[float], float] = lambda eta: np.clip(7 + np.log2(eta), 0.2, 10),
+    cmap: str | Colormap = default_cmap,
+    xlim: BoundsType = (0.0015, 0.015),
+    ylim: BoundsType = (130, 40000),
+    xticks: TicksType = ([2e-3, 3e-3, 4e-3, 5e-3, 6e-3, 1e-2, 2e-2], ["0.2%", "0.3%", "0.4%", "0.5%", "0.6%", "1%", "2%"]),
+    yticks: TicksType = ([1000, 2000, 5000, 10000, 20000], ["1k", "2k", "5k", "10k", "20k"]),
+    inset_xlim: BoundsType = (500, 45000),
+    inset_ylim: BoundsType = (33000, 33500),
+    inset_xticks: TicksType = ([1000, 3000, 10000, 30000], ["1k", "3k", "10k", "30k"]),
+) -> Figure:
+    """
+    Plot the characterization of SB methods in the parameter space:
+    A main plot of median cut error vs average number of steps across the parameter space with several insets shows the performance of each method with median cut value vs average number of steps.
+
+    Args:
+        max_cut_results: Dictionary containing the experimental results
+        methods: List of methods to analyze (None to use all available methods)
+        figsize: Figure size tuple (default: (11, 7))
+        best_cut: Best cut value for reference (default: 33337)
+        annotation_points: List of tuples (method, (eta, beta), offset) for annotations
+        linewidth_fn: Function to compute line width based on eta value
+        xlim: X-axis limits for main plot (default: (0.0015, 0.015))
+        ylim: Y-axis limits for main plot (default: (130, 40000))
+        xticks: Tuple of (positions, labels) for X-axis ticks
+        yticks: Tuple of (positions, labels) for Y-axis ticks
+        inset_xlim: X-axis limits for inset plots (default: (500, 45000))
+        inset_ylim: Y-axis limits for inset plots (default: (32900, 33500))
+        inset_xticks: Tuple of (positions, labels) for inset X-axis ticks
+
+    Returns:
+        Figure object
+    """
+
+    # Extract parameter values
+    coords = list(max_cut_results.keys())
+    beta_vals = np.array(sorted(set(coord[0] for coord in coords)))
+    eta_vals = np.array(sorted(set(coord[1] for coord in coords)))
+    if methods is None:
+        methods = list(next(iter(max_cut_results.values())).keys())
+
+    # Helper function to create DataFrame from data
+    def create_dataframe(data_func: Callable[[dict[int, dict[Literal["best_cut", "n_step"], int]]], np.floating]) -> dict[MethodType, pd.DataFrame]:
+        return {method: pd.DataFrame([[data_func(max_cut_results[(beta, eta)][method]) if (beta, eta) in max_cut_results else np.nan for beta in beta_vals] for eta in eta_vals], index=pd.Index(eta_vals, name="eta"), columns=pd.Index(beta_vals, name="beta")) for method in methods}
+
+    # Calculate only needed statistics
+    median_max_cut_df = create_dataframe(lambda data: np.median([d["best_cut"] for d in data.values()]))
+    mean_n_step_df = create_dataframe(lambda data: np.mean([d["n_step"] for d in data.values()]))
+    median_error_df = create_dataframe(lambda data: (best_cut - np.median([d["best_cut"] for d in data.values()])) / best_cut)
+
+    # Create parameter space DataFrame
+    param_spaces = pd.DataFrame([[eta, beta] for eta in eta_vals for beta in beta_vals if (beta, eta) in max_cut_results], columns=["eta", "beta"])
+
+    # Create the main plot
+    fig = plt.figure(figsize=figsize)
+    ax = fig.gca()
+    bgcolor = ax.get_facecolor()
+    frontcolor = np.array([1, 1, 1, 1]) - bgcolor
+
+    if isinstance(cmap, str):
+        cmap = colormaps[cmap]
+
+    colors: dict[MethodType, ColorType] = dict(zip(methods, cmap(np.linspace(0, 1, len(methods)))))
+
+    best_param_line = {}
+
+    # Plot for each method
+    for i, (method, color) in enumerate(colors.items()):
+        x_data = median_error_df[method]
+        y_data = mean_n_step_df[method]
+
+        # Plot lines for different parameter values
+        if len(eta_vals) > 1:
+            for beta in beta_vals:
+                ax.plot(x_data.loc[:, beta], y_data.loc[:, beta], marker="x", linestyle="--", alpha=0.4, linewidth=1, color=color)
+
+        if len(beta_vals) > 1:
+            for eta in eta_vals:
+                ax.plot(x_data.loc[eta, :], y_data.loc[eta, :], linewidth=linewidth_fn(eta), marker="x", linestyle="-", alpha=0.2, color=color)
+
+        # Create convex hull for best parameters
+        points = np.array([[x_data.loc[eta, beta], y_data.loc[eta, beta]] for eta in eta_vals for beta in beta_vals if not (np.isnan(x_data.loc[eta, beta]) or np.isnan(y_data.loc[eta, beta]))])
+
+        if len(points) > 2:
+            from scipy.spatial import ConvexHull
+
+            hull = ConvexHull(points)
+            vertices = points[hull.vertices]
+
+            # Find optimal boundary (minimize error, minimize steps)
+            log_diff = np.log(vertices[:, 1]) - np.log(vertices[:, 0])
+            idx_a, idx_b = log_diff.argmax(), log_diff.argmin()
+            boundary_indices = np.arange(idx_a, idx_b + 1) if idx_a < idx_b else np.append(np.arange(idx_a, len(vertices)), np.array(0, idx_b + 1))
+            optimal_vertices = vertices[boundary_indices]
+            optimal_indices = hull.vertices[boundary_indices]
+
+            ax.plot(optimal_vertices[:, 0], optimal_vertices[:, 1], color=color, linestyle="--", linewidth=4, alpha=1, label=method, marker="o", markersize=8)
+
+            best_param_line[method] = param_spaces.iloc[optimal_indices]
+
+    # Configure main plot
+    ax.legend(loc="lower left")
+    ax.grid(True, which="both", linestyle="-", linewidth=0.5, alpha=0.4)
+    ax.set_xlabel("Median Error from Best Cut")
+    ax.set_ylabel("Average Number of Steps to Convergence")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xticks(*xticks)
+    ax.set_yticks(*yticks)
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+    ax.set_title(r"Characterization of SB methods in the parameter space", fontsize=14, fontweight="bold")
+
+    # Add annotations for specific points
+    for method, (eta, beta), offset in annotation_points:
+        if method in methods and eta in eta_vals and beta in beta_vals:
+            x: float = median_error_df[method][beta][eta]
+            y: float = mean_n_step_df[method][beta][eta]
+            color = colors[method]
+
+            ax.annotate(rf"$\mathbf{{(\eta, \beta)=({to_latex(eta)}, {to_latex(beta)})}}$", xy=(x, y), xytext=offset, textcoords="offset points", arrowprops=dict(arrowstyle="->", lw=1.5, color=color), fontsize=10, color=color, ha="right", va="top")
+
+    # Cut value vs steps insets
+    for i, (method, color) in enumerate(colors.items()):
+        axin = inset_axes(ax, width=f"{1 / len(methods):%}", height="40%", loc="lower left", bbox_to_anchor=(i / len(methods), -0.6, 1, 1), bbox_transform=ax.transAxes)
+
+        # Plot lines
+        if len(eta_vals) > 1:
+            for beta in beta_vals:
+                axin.plot(mean_n_step_df[method].loc[:, beta], median_max_cut_df[method].loc[:, beta], marker="x", linestyle="--", alpha=0.4, linewidth=1, color=color)
+
+        if len(beta_vals) > 1:
+            for eta in eta_vals:
+                axin.plot(mean_n_step_df[method].loc[eta, :], median_max_cut_df[method].loc[eta, :], linewidth=linewidth_fn(eta), marker="x", linestyle="-", alpha=0.4, color=color)
+
+        # Best parameters scatter
+        if method in best_param_line:
+            best_eta = best_param_line[method]["eta"]
+            best_beta = best_param_line[method]["beta"]
+            x_best = mean_n_step_df[method].loc[best_eta, best_beta]
+            y_best = median_max_cut_df[method].loc[best_eta, best_beta]
+            axin.scatter(x_best, y_best, s=40, color=color, marker="o", label="Best Parameters")
+
+        # Boxplot for eta=1
+        test_eta = 1.0
+        if test_eta in eta_vals:
+            box_data = [[r["best_cut"] for r in max_cut_results[(beta, test_eta)][method].values()] for beta in beta_vals if (beta, test_eta) in max_cut_results]
+            box_positions = np.array([mean_n_step_df[method].loc[test_eta, beta] for beta in beta_vals if (beta, test_eta) in max_cut_results])
+
+            if box_data:
+                axin.boxplot(
+                    box_data,
+                    positions=box_positions,
+                    widths=box_positions / 2,
+                    showfliers=True,
+                    medianprops={"color": frontcolor, "linewidth": 2},
+                    boxprops={"color": frontcolor, "linewidth": 1, "alpha": 0.6},
+                    whiskerprops={"color": frontcolor, "linewidth": 1, "alpha": 0.6},
+                    capprops={"color": frontcolor, "linewidth": 1, "alpha": 0.6},
+                    flierprops={"markerfacecolor": frontcolor, "markeredgecolor": frontcolor, "markersize": 2, "alpha": 0.6},
+                )
+
+        # Configure inset
+        axin.set_title(method, fontsize=10, fontweight="bold")
+        axin.set_xscale("log")
+        axin.set_xlim(inset_xlim)
+        axin.set_xticks(inset_xticks[0], inset_xticks[1])
+        axin.set_ylim(inset_ylim)
+        axin.axhline(best_cut, color=frontcolor, linestyle="--", linewidth=1, alpha=0.6, label="Best Cut Value")
+        axin.grid(True, which="both", linestyle="-", linewidth=0.5, alpha=0.3)
+        axin.legend(loc="upper left", fontsize=8, frameon=False)
+
+        if i == 0:
+            axin.set_ylabel("Cut Value")
+        else:
+            axin.set_yticklabels([])
+
+    fig.text(0.5, 0, r"Steps to Convergence vs Cut Value", fontsize=13, fontweight="bold", ha="center")
+
+    # Parameter grid insets
+    for i, (method, color) in enumerate(colors.items()):
+        axin = inset_axes(ax, width=f"{1 / len(methods):%}", height="30%", loc="lower left", bbox_to_anchor=(i / len(methods), -1.02, 1, 1), bbox_transform=ax.transAxes)
+
+        axin.scatter(param_spaces["eta"], param_spaces["beta"], s=20, color=color, marker="x")
+
+        for eta in eta_vals:
+            axin.axvline(eta, color=color, linestyle="-", alpha=0.3, linewidth=linewidth_fn(eta))
+        for beta in beta_vals:
+            axin.axhline(beta, color=color, linestyle="--", alpha=0.3, linewidth=1)
+
+        axin.set_xscale("log")
+        axin.set_yscale("log")
+        axin.set_xticks(eta_vals[2::2], [f"${to_latex(eta)}$" for eta in eta_vals[2::2]], fontsize=9)
+        axin.set_yticks(beta_vals, [f"${to_latex(beta)}$" for beta in beta_vals], fontsize=9)
+        axin.set_xlabel(r"$\eta$")
+        axin.invert_xaxis()
+        axin.invert_yaxis()
+
+        if method in best_param_line:
+            axin.plot(best_param_line[method]["eta"], best_param_line[method]["beta"], color=color, linestyle="--", linewidth=2, alpha=1, marker="o", markersize=5, label="Best Parameters")
+            axin.legend(loc="upper right", fontsize=8, frameon=False)
+
+        if i == 0:
+            axin.set_ylabel(r"$\beta$", rotation="horizontal", labelpad=10)
+        else:
+            axin.set_yticklabels([])
+
+    fig.text(0.5, -0.42, r"Parameter Grid", fontsize=13, fontweight="bold", ha="center")
+
+    return fig
