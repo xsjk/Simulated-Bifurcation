@@ -143,7 +143,7 @@ def run_impl(
         raise ValueError("J must be a square matrix.")
 
     if max_steps is None:
-        max_steps = int(2 / beta / eta)
+        max_steps = int(2.5 / beta / eta)
 
     rng = torch.Generator(device=J.device)
     rng.manual_seed(seed)
@@ -221,7 +221,7 @@ def run_impl(
             y_history[i] = y
             g_history[i] = g
 
-        if (x.abs() == 1).all():
+        if (x.abs().min() >= 1).item():
             break
 
     if return_history:
@@ -245,13 +245,15 @@ def run_impl(
     else:
         V = (1 - beta * t) / 2 * (x**2).sum(-1) - xi * x @ J @ X
         H = 1 / 2 * (y**2).sum(-1) + V
-        x[x.sign() == 0] = 1
-        cut = ((-J.sum() + x @ J @ x) / 4).to(dtype=torch.int32)
+        x_sign = x.sign()
+        x_sign[x_sign == 0] = 1
+        cut = ((-J.sum() + x_sign @ J @ x_sign) / 4).to(dtype=torch.int32)
         return StateTensor(x, y, g, V, X, H, cut, i + 1)
 
 
 MethodType = Literal["aSB", "bSB", "dSB", "sSB", "sSB_sgn"]
 InitType = Literal["center", "boundary", "ones"]
+
 
 def run(
     J: torch.Tensor,
@@ -288,6 +290,7 @@ def run(
         The maximum number of steps to run.
     init : InitType
         The initial state of x. One of InitType.
+        Note that using a center initialization is recommended for better performance when using the aSB method.
     seed : int
         The random seed.
     progress_bar : bool

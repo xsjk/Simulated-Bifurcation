@@ -37,7 +37,7 @@ class Benchmark:
             print("=" * 50)
             print(f"Problem size: {J.shape[0]}×{J.shape[0]}")
             print(f"Parameters: β={beta}, η={eta}, seed={seed}")
-            print(f"Methods: {', '.join(self.methods)}")
+            print(f"Methods: {', '.join(map(str, self.methods))}")
             print("=" * 50)
         for m in self.methods:
             s = Solver()
@@ -70,7 +70,7 @@ class Benchmark:
         figsize: tuple[int, int] | None = None,
         interval: tuple[float, float] | None = None,
         dims: tuple[int, int] = (0, 1),
-        n_arrows: int = 100,
+        n_arrows: int = 1000,
         n_slice: int = 2000,
         n_bins: int = 80,
         vmax: float = 0.05,

@@ -9,7 +9,7 @@ from tqdm import tqdm
 import core
 from core import InitType, MethodType, StateTensor
 
-methods: list[MethodType] = ["aSB", "bSB", "dSB", "sSB", "sSB_sgn"]
+methods: list[MethodType] = ["bSB", "dSB", "sSB", "sSB_sgn"]
 seeds = list(range(128))
 
 k_beta_eta_max = 15
@@ -45,8 +45,9 @@ def run_method(queue, J, device, seeds, params):
 
 type HyperparamResultType = dict[tuple[float, float], dict[MethodType, dict[int, dict[Literal["best_cut", "n_step"], int]]]]
 
+
 def plot_result(result_path: str, save_prefix: str, **kwargs) -> None:
-    '''
+    """
     Plot the results of hyperparameter exploration.
 
     Parameters
@@ -57,13 +58,16 @@ def plot_result(result_path: str, save_prefix: str, **kwargs) -> None:
         Prefix for saving the figures.
     kwargs : dict
         Additional keyword arguments to pass to the plotting function. See `visualize.plot_hyperparam_characterization` for details.
-    '''
-    import visualize
+    """
     import os.path
+
+    import visualize
+
     if os.path.exists(result_path):
         visualize.plot_hyperparam_characterization(max_cut_results=pickle.load(open(result_path, "rb")), **kwargs).savefig(f"{save_prefix}.png", bbox_inches="tight", dpi=300)
     else:
         print(f"Results file not found: {result_path}. Please run hyperparameter_test.py first to generate it or check the file path.")
+
 
 if __name__ == "__main__":
     results_save_path = f"max_cut_values_{init}_init_k_xi_{k_xi}.pkl"
@@ -131,4 +135,3 @@ if __name__ == "__main__":
 
         print(f"Saving results to {results_save_path}...")
         pickle.dump(results, open(results_save_path, "wb"))
-

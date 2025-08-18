@@ -569,31 +569,28 @@ def plot_hyperparam_characterization(
                 axin.plot(mean_n_step_df[method].loc[eta, :], median_max_cut_df[method].loc[eta, :], linewidth=linewidth_fn(eta), marker="x", linestyle="-", alpha=0.4, color=color)
 
         # Best parameters scatter
-        if method in best_param_line:
-            best_eta = best_param_line[method]["eta"]
-            best_beta = best_param_line[method]["beta"]
-            x_best = mean_n_step_df[method].loc[best_eta, best_beta]
-            y_best = median_max_cut_df[method].loc[best_eta, best_beta]
-            axin.scatter(x_best, y_best, s=40, color=color, marker="o", label="Best Parameters")
+        best_eta = best_param_line[method]["eta"]
+        best_beta = best_param_line[method]["beta"]
+        x_best = mean_n_step_df[method].loc[best_eta, best_beta]
+        y_best = median_max_cut_df[method].loc[best_eta, best_beta]
+        axin.scatter(x_best, y_best, s=40, color=color, marker="o", label="Best Parameters")
 
-        # Boxplot for eta=1
-        test_eta = 1.0
-        if test_eta in eta_vals:
-            box_data = [[r["best_cut"] for r in max_cut_results[(beta, test_eta)][method].values()] for beta in beta_vals if (beta, test_eta) in max_cut_results]
-            box_positions = np.array([mean_n_step_df[method].loc[test_eta, beta] for beta in beta_vals if (beta, test_eta) in max_cut_results])
-
-            if box_data:
-                axin.boxplot(
-                    box_data,
-                    positions=box_positions,
-                    widths=box_positions / 2,
-                    showfliers=True,
-                    medianprops={"color": frontcolor, "linewidth": 2},
-                    boxprops={"color": frontcolor, "linewidth": 1, "alpha": 0.6},
-                    whiskerprops={"color": frontcolor, "linewidth": 1, "alpha": 0.6},
-                    capprops={"color": frontcolor, "linewidth": 1, "alpha": 0.6},
-                    flierprops={"markerfacecolor": frontcolor, "markeredgecolor": frontcolor, "markersize": 2, "alpha": 0.6},
-                )
+        # Boxplot the most common eta in best_eta
+        unique_eta, unique_counts = np.unique(best_eta, return_counts=True)
+        test_eta = unique_eta[np.argmax(unique_counts)]
+        box_data = [[r["best_cut"] for r in max_cut_results[(beta, test_eta)][method].values()] for beta in beta_vals if (beta, test_eta) in max_cut_results]
+        box_positions = np.array([mean_n_step_df[method].loc[test_eta, beta] for beta in beta_vals if (beta, test_eta) in max_cut_results])
+        axin.boxplot(
+            box_data,
+            positions=box_positions,
+            widths=box_positions / 2,
+            showfliers=True,
+            medianprops={"color": frontcolor, "linewidth": 2},
+            boxprops={"color": frontcolor, "linewidth": 1, "alpha": 0.6},
+            whiskerprops={"color": frontcolor, "linewidth": 1, "alpha": 0.6},
+            capprops={"color": frontcolor, "linewidth": 1, "alpha": 0.6},
+            flierprops={"markerfacecolor": frontcolor, "markeredgecolor": frontcolor, "markersize": 2, "alpha": 0.6},
+        )
 
         # Configure inset
         axin.set_title(method, fontsize=10, fontweight="bold")
