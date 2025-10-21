@@ -58,7 +58,7 @@ This project implements four variants of Simulated Bifurcation algorithms:
 - **aSB** (Adiabatic Simulated Bifurcation)
 - **bSB** (Ballistic Simulated Bifurcation)
 - **dSB** (Discrete Simulated Bifurcation)
-- **sSB** (Simplified Simulated Bifurcation)
+- **sSB** (Stocastic Simulated Bifurcation)
 
 These algorithms are designed to solve combinatorial optimization problems by mapping them to Ising models and using bifurcation dynamics to find optimal solutions.
 
